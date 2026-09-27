@@ -44,8 +44,11 @@ final class ExperimentalToneServiceTests: XCTestCase {
             let plus = sample(operation(color, 80)), minus = sample(operation(color, -80))
             XCTAssertTrue(plus[0].isFinite && minus[0].isFinite)
             XCTAssertEqual(plus[0] / plus[1], 2, accuracy: 0.08)
-            XCTAssertEqual(minus[0] / minus[1], 2, accuracy: 0.08)
         }
+        let negativeShadows = sample(ExperimentalToneService.shadows(color, amount: -80))
+        XCTAssertEqual(negativeShadows[0] / negativeShadows[1], 2, accuracy: 0.08)
+        let mist = sample(ExperimentalToneService.dehaze(color, amount: -80))
+        XCTAssertLessThan(mist[0] / mist[1], 2, "Negative dehaze should reduce chroma")
         XCTAssertGreaterThan(sample(ExperimentalToneService.shadows(color, amount: 80))[0], sample(color)[0])
         XCTAssertLessThan(sample(ExperimentalToneService.shadows(color, amount: -80))[0], sample(color)[0])
         let bright = image(0.7, 0.6, 0.5)
@@ -53,6 +56,37 @@ final class ExperimentalToneServiceTests: XCTestCase {
         XCTAssertLessThan(sample(ExperimentalToneService.whites(bright, amount: -80))[0], sample(bright)[0])
         XCTAssertGreaterThan(sample(ExperimentalToneService.contrast(bright, amount: 80))[0], sample(bright)[0])
         XCTAssertLessThan(sample(ExperimentalToneService.contrast(bright, amount: -80))[0], sample(bright)[0])
+    }
+
+    func testPositiveShadowsAddsRoughlyAnotherOneAndHalfStopsInDeepMidShadows() {
+        let input = image(0.20, 0.12, 0.07)
+        let old = sample(input)
+        let lifted = sample(ExperimentalToneService.shadows(input, amount: 100))
+        XCTAssertGreaterThan(lifted[0] / old[0], 2.7, "Need meaningful shadow lift, not a few curve points")
+        XCTAssertEqual(lifted[0] / lifted[1], old[0] / old[1], accuracy: 0.08)
+        let black = image(0, 0, 0)
+        XCTAssertEqual(sample(ExperimentalToneService.shadows(black, amount: 100))[0], 0, accuracy: 0.0001)
+    }
+
+    func testNegativeWhitesDarkensBrightDetailWithoutRaisingIt() {
+        let input = image(0.8, 0.74, 0.68)
+        let after = sample(ExperimentalToneService.whites(input, amount: -90))
+        XCTAssertLessThan(after[0], 0.70, "Whites -90 should compress the upper tone range perceptibly")
+        XCTAssertEqual(after[0] / after[1], 0.8 / 0.74, accuracy: 0.06)
+        let shadow = image(0.08, 0.07, 0.06)
+        XCTAssertEqual(sample(ExperimentalToneService.whites(shadow, amount: -90))[0], 0.08, accuracy: 0.01)
+    }
+
+    func testNegativeDehazeAddsNeutralVeilAndWashesOutColorAndPositiveCutsHaze() {
+        let original = image(0.2, 0.1, 0.05)
+        let before = sample(original)
+        let fogged = sample(ExperimentalToneService.dehaze(original, amount: -85))
+        XCTAssertGreaterThan(fogged[1], before[1] + 0.12, "Negative dehaze should look like visible mist")
+        XCTAssertLessThan(fogged[0] - fogged[2], before[0] - before[2], "Airlight should wash out color")
+        XCTAssertLessThan(fogged[0] / fogged[1], before[0] / before[1])
+        let hazy = image(0.55, 0.55, 0.55)
+        XCTAssertLessThan(sample(ExperimentalToneService.dehaze(hazy, amount: 85))[0], 0.47,
+                          "Positive dehaze needs a visibly stronger atmospheric contrast change")
     }
 
     func testTexturePreservesUniformFields() {

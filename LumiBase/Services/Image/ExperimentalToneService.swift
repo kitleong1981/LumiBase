@@ -16,11 +16,16 @@ public enum ExperimentalToneService {
                 // Soft S curve, with the pivot at middle gray.
                 delta = a * 0.8 * (t - 0.4) * t * (1.0 - t);
             } else if (mode < 1.5) {
-                mask = 1.0 - smoothstep(0.04, 0.60, t);
-                delta = a * 0.28 * mask * t;
+                // Exposure-domain lift: at +100 a mid-shadow gains ~1.5-1.8 EV.
+                // Fade at true black and in mid/highlights to avoid a gray black floor.
+                mask = (1.0 - smoothstep(0.05, 0.62, t)) * smoothstep(0.0, 0.025, t);
+                float ev = a * 1.85 * mask;
+                delta = t * (exp2(ev) - 1.0);
             } else if (mode < 2.5) {
-                mask = smoothstep(0.32, 0.88, t);
-                delta = a * 0.22 * mask * (1.0 - t);
+                // White range shoulder; stronger negative compression, but a
+                // smooth taper keeps the displayed specular endpoint anchored.
+                mask = smoothstep(0.38, 0.84, t);
+                delta = a * 0.30 * mask * sqrt(max(1.0 - t, 0.0));
             }
             float target = clamp(y + delta, 0.0, 1.0);
             float ratio = clamp(target / max(y, 0.00001), 0.0, 4.0);
@@ -43,16 +48,21 @@ public enum ExperimentalToneService {
         """)
 
     // Bounded local dark-channel transmission approximation, not Adobe's model.
-    // Adjust only luminance to avoid a hue shift from per-channel veil subtraction.
+    // Positive values change luminance while retaining hue; negative values
+    // mix neutral airlight into RGB, intentionally washing out color like mist.
     private static let hazeKernel = CIColorKernel(source: """
         kernel vec4 localHaze(__sample pixel, __sample dark, float amount) {
             vec3 rgb = max(pixel.rgb, vec3(0.0));
             float y = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
-            float t = clamp(1.0 - clamp(dark.r, 0.0, 1.0) * 0.75, 0.55, 1.0);
-            float recovered = clamp((y - 0.68 * (1.0 - t)) / t, 0.0, 1.0);
-            float weight = clamp(abs(amount), 0.0, 1.0) * 0.65;
-            float target = mix(y, recovered, weight);
-            if (amount < 0.0) target = mix(y, y + (1.0 - y) * (1.0 - t) * 0.5, weight);
+            float a = clamp(abs(amount), 0.0, 1.0);
+            float localDark = clamp(dark.r, 0.0, 1.0);
+            if (amount < 0.0) {
+                float veil = a * (0.36 + 0.42 * localDark);
+                return vec4(mix(rgb, vec3(0.78), veil), pixel.a);
+            }
+            float t = clamp(1.0 - localDark * 1.1, 0.35, 1.0);
+            float recovered = clamp((y - 0.72 * (1.0 - t)) / t, 0.0, 1.0);
+            float target = mix(y, recovered, a * 0.85);
             float ratio = clamp(target / max(y, 0.00001), 0.0, 3.0);
             return vec4(clamp(rgb * ratio, 0.0, 1.0), pixel.a);
         }

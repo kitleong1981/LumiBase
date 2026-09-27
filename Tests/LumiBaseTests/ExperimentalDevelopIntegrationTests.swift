@@ -5,6 +5,28 @@ import AppKit
 @testable import LumiBase
 
 final class ExperimentalDevelopIntegrationTests: XCTestCase {
+    func testA_BSameSliderWhitesMustNotGetBrighterAndShadowsMustLiftMore() throws {
+        let bright = CIImage(color: CIColor(red: 0.8, green: 0.8, blue: 0.8))
+            .cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+        var whites = XMPMetadata(whites2012: -90)
+        let legacyWhites = try XCTUnwrap(rendered(image: AdobeColorPipeline.shared.process(
+            image: bright, cameraModel: nil, xmp: whites)).first)
+        whites.experimentalWhites = true
+        let experimentalWhites = try XCTUnwrap(rendered(image: AdobeColorPipeline.shared.process(
+            image: bright, cameraModel: nil, xmp: whites)).first)
+        XCTAssertLessThan(experimentalWhites, legacyWhites, "A/B Whites -90 must go darker, not brighter")
+
+        let dark = CIImage(color: CIColor(red: 0.12, green: 0.12, blue: 0.12))
+            .cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+        var shadows = XMPMetadata(shadows2012: 100)
+        let legacyShadows = try XCTUnwrap(rendered(image: AdobeColorPipeline.shared.process(
+            image: dark, cameraModel: nil, xmp: shadows)).first)
+        shadows.experimentalShadows = true
+        let experimentalShadows = try XCTUnwrap(rendered(image: AdobeColorPipeline.shared.process(
+            image: dark, cameraModel: nil, xmp: shadows)).first)
+        XCTAssertGreaterThan(experimentalShadows, legacyShadows + 35)
+    }
+
     func testReadOnlyRealRAWWithToneLensAndNativeHighlights() async throws {
         let source = HighlightsIntegrationTests.source
         guard FileManager.default.fileExists(atPath: source.path) else { throw XCTSkip("RAW fixture unavailable") }

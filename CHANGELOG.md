@@ -5,6 +5,13 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.1] - Calibrate experimental Shadows, Whites and Dehaze
+
+- Increase the experimental Shadows lift in exposure space while retaining true black and reducing the effect above the shadow range. This is an A/B test calibration, not a promise of Lightroom EV equivalence on every RAW.
+- Strengthen negative experimental Whites compression in the bright tone range; keep the specular endpoint anchored and verify the same negative slider is darker than the previous renderer on a synthetic bright patch.
+- Rework negative Dehaze as a neutral airlight veil that lifts blacks, lowers contrast and washes out color; make positive Dehaze stronger with bounded local dark-channel transmission. The Adobe algorithm is proprietary and appearance remains subject to photo-by-photo testing.
+- Keep the accepted experimental Contrast formula unchanged. Experimental Texture and the manual lens operators are unchanged; turn Texture A/B off to use the older rendition.
+
 ## [1.12.0] - Isolated experimental tone and manual lens controls
 
 - Add per-photo A/B switches for Contrast, Shadows, Whites, Dehaze and Texture; each can be compared against its unchanged legacy renderer without changing the corresponding slider value.

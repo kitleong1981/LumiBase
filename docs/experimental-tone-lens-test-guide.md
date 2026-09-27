@@ -1,3 +1,9 @@
+# LumiBase 1.12.1 — 重新校準 Shadows／Whites／Dehaze
+
+這是接續 1.12.0 的獨立測試版。根據第一次實測：**Contrast 演算法保持原樣；Texture 舊版較合適時，請將 Texture 的 A/B 開關關掉**。Whites 負值現在應更明顯壓暗亮部；Shadows 正值使用較強的暗部曝光補償；Dehaze 負值新增中性霧層與褪色效果，正值加強有界的局部去霧。
+
+請在同一張照片只切換一項開關，特別試 **Shadows +50／+100、Whites −50／−90、Dehaze −85／+85**；觀察 100%、暗部噪點、雲的白色細節與膚色。這仍不是 Adobe 像素級實作或對每張照片都相差固定 EV 的承諾。
+
 # LumiBase 1.12.0 — 獨立演算法與鏡頭校正測試指南
 
 此版本是 **隔離的實驗 App**，尚未合併到正式 `main`。實驗演算法參考公開的影像處理方法，**不是 Adobe Lightroom／Photoshop Camera Raw 的程式碼或鏡頭描述檔**。正式驗收前請使用 RAW/JPEG 的副本；此 App 與舊版共用照片旁的 XMP sidecar，舊版重寫 XMP 時可能移除新欄位。不要讓兩個版本同時寫入同一資料夾。
