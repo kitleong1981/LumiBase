@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Standard Pipeline Highlight Recovery Enhancement (`AdobeColorPipeline`)**:
-  - Implemented full Adobe PV2012 highlight shoulder rolloff in standard pipeline (`Advanced RAW Highlight Recovery` off or non-RAW files): negative highlights (`hl = -100`) smoothly compress specular highlights (`p4Y` down to ~0.84) and upper highlights (`p3Y` down to ~0.55), while preserving midtones (`hlP2 = -0.02`) so water, sea, and foreground horizons retain proper contrast and punch.
-  - Introduced `highlightChromaKernel` to inject chromaticity infill into recovered highlights (`luma > 0.40`), restoring vivid sunset ambers, oranges, and cloud warmth instead of washing out into gray.
+  - Implemented balanced Adobe PV2012 highlight rolloff in standard pipeline (`Advanced RAW Highlight Recovery` off or non-RAW files): negative highlights smoothly compress top specular highlights (`hlP4 = hlFactor * 0.12`) while maintaining healthy contrast slope across the 0.50~0.75 zone (`hlP2 = hlFactor * 0.05`, `hlP3 = hlFactor * 0.10`), keeping cloud textures, dark silhouettes, and local dynamic range crisp and intact.
+  - Removed artificial highlight chroma injection to preserve authentic cool/dark cloud silhouettes against backlit sunset skies without muddy orange tinting.
   - Preserved exact calibrated endpoint values (`hlP2 = 0.08`, `hlP3 = 0.08`, `hlP4 = 0.0`) when preparing endpoints for `AcceptedHighlightsKernel` to ensure 100% numerical parity for the advanced recovery workflow.
   - Added unit test `testStandardHighlightRecoveryCompressesHighlightsAndPreservesMidtones` to verify highlight compression and midtone preservation.
 
