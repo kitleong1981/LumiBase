@@ -5,6 +5,14 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Preview Jitter During Highlights Adjustment**:
+  - Pinned `outputExtent` to `targetExtent` in `RAWImageLoader.renderProcessed` when uncropped, eliminating subpixel integer rounding discrepancies between `AdobeColorPipeline` and `NativeHighlightsService`.
+  - Passed `fullExtent: holder.fullExtent` in `LoupeView.swift` during interactive slider dragging, eliminating origin offset jumps between interactive drag frames and debounced idle full renders.
+  - Prioritized `fullExtent.size` over proxy image size in `LoupeView` handoff proxy to prevent aspect ratio shifts during preview loading.
+
 ## [1.10.1] - Persist Advanced RAW Highlight Recovery per photo
 
 - Save the Advanced RAW Highlight Recovery checkbox immediately as `lumibase:AdvancedRAWHighlightRecovery` in each photo's XMP sidecar; parse both true and false after restarting or moving to a separately identified preview app. A failed atomic write leaves the checkbox unchanged and shows an error. Explicit photo settings override the legacy app-wide preference; old sidecars without this property retain their previous preference fallback until the checkbox is changed.
