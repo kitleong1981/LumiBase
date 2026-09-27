@@ -5,6 +5,25 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - Large-batch Develop Sync refresh fix
+
+- Apply a multi-photo Sync as one catalog publication rather than one SwiftUI update per target. Preserve the source selection and write changed target sidecars only.
+- Coalesce directory-watcher bursts from many XMP sidecars into a delayed folder refresh instead of repeatedly cancelling full scans and leaving the current Loupe loading. Folder switches cancel the pending refresh.
+- Regress a 75-target synthetic sync with all sidecars parsed back, real watcher events, and hosted Loupe visibility. This does not establish a physical M4 acceptance test.
+
+## [1.9.0] - Inspection performance and input regression fixes
+
+### Improved
+- Speed up exact negative-Highlights preparation with quarter-sample readback and disjoint parallel box-filter workers. This applies only when **Advanced RAW Highlight Recovery (Experimental)** is enabled; the default-OFF standard color pipeline is separate and was not benchmarked as an effect of this change.
+- Coalesce obsolete edit renders and invalidate queued work on selection/zoom changes; reuse dependency-keyed RAW holders and the prepared field for Highlights-strength-only edits.
+- Repair double-click 100% ROI invalidation when the native center changes without a zoom-state change, and avoid a duplicate drag render.
+- Refresh the current Loupe raster when Advanced RAW Highlight Recovery is toggled, without treating it as an XMP edit or triggering Auto Sync. Invalidate retained previews/ROIs and include the rendering policy in ROI cache identity.
+- Add filmstrip wheel navigation and double-click reset for Develop controls (WB resets to each photo's as-shot baseline).
+- Keep older DMG installers when packaging a new version.
+
+### Validation
+- Add native double-click, input, kernel, queue, crop, switch, and opt-in interactive benchmark tests. Tested one real RAW's full-frame native output for exact parity; the benchmarks measure API-to-raster, not physical input-to-display latency. Draft thumbnails and the default-OFF experimental switch are retained from 1.8.1.
+
 ## [1.8.1] - 2026-09-26
 
 ### Added

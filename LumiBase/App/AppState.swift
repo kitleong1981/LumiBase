@@ -50,14 +50,18 @@ public final class AppState: ObservableObject {
     @Published public var isFilmstripVisible: Bool = true
     
     // Native Highlights (Accepted-B) toggle - default false
+    @Published public private(set) var highlightsRenderRevision: UInt64 = 0
     @Published public var isNativeHighlightsEnabled: Bool = UserDefaults.standard.bool(forKey: "isNativeHighlightsEnabled") {
         didSet {
+            guard oldValue != isNativeHighlightsEnabled else { return }
             UserDefaults.standard.set(isNativeHighlightsEnabled, forKey: "isNativeHighlightsEnabled")
             NativeHighlightsService.isEnabled = isNativeHighlightsEnabled
             RAWImageLoader.shared.clearCache()
-            if let primaryID = primarySelectedAssetID {
-                updateDevelopSettings(for: primaryID, isDragging: false) { _ in }
-            }
+            InspectionReadyFrameStore.shared.clearAll()
+            Task { await ProcessedROICacheService.shared.invalidateForRenderingPolicyChange() }
+            // This is a rendering policy, not a photo edit. Trigger the Loupe
+            // without modifying live XMP, batch Auto Sync, or XMP sidecars.
+            highlightsRenderRevision &+= 1
         }
     }
     
@@ -77,6 +81,7 @@ public final class AppState: ObservableObject {
     // Watcher & Keyboard Monitor
     private let directoryWatcher = DirectoryWatcher()
     private var folderScanTask: Task<Void, Never>?
+    private var folderRefreshDebounceTask: Task<Void, Never>?
     private var folderScanGeneration: UInt64 = 0
     private var scopedFolderURL: URL?
     private var ownsScopedFolderAccess = false
@@ -105,7 +110,7 @@ public final class AppState: ObservableObject {
         self.fullFolderScan = fullFolderScan
         directoryWatcher.onChange = { [weak self] in
             Task { @MainActor in
-                self?.refreshCurrentFolder()
+                self?.scheduleFolderRefresh()
             }
         }
         
@@ -127,6 +132,7 @@ public final class AppState: ObservableObject {
         let preloader = previewPreloader
         Task { await preloader.cancelAndClear() }
         folderScanTask?.cancel()
+        folderRefreshDebounceTask?.cancel()
         if ownsScopedFolderAccess, let scopedFolderURL {
             scopedFolderURL.stopAccessingSecurityScopedResource()
         }
@@ -415,6 +421,7 @@ public final class AppState: ObservableObject {
     // MARK: - Folder Actions
     
     public func openFolder(url: URL) {
+        folderRefreshDebounceTask?.cancel()
         folderScanGeneration &+= 1
         let generation = folderScanGeneration
         folderScanTask?.cancel()
@@ -480,6 +487,19 @@ public final class AppState: ObservableObject {
         }
     }
     
+    /// Coalesce sidecar writes so a batch sync scans/publishes the folder once.
+    func scheduleFolderRefresh() {
+        guard let url = currentFolderURL else { return }
+        folderRefreshDebounceTask?.cancel()
+        folderRefreshDebounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled, let self,
+                  self.currentFolderURL?.standardizedFileURL == url.standardizedFileURL else { return }
+            self.folderRefreshDebounceTask = nil
+            self.refreshCurrentFolder()
+        }
+    }
+
     public func refreshCurrentFolder() {
         guard let url = currentFolderURL, !isScanning else { return }
 
@@ -779,16 +799,23 @@ public final class AppState: ObservableObject {
         let targets = targetIDs ?? selectedAssetIDs.filter { $0 != validSourceID }
         guard !targets.isEmpty else { return }
         
+        var updatedAssets = allAssets
+        let indices = Dictionary(uniqueKeysWithValues: updatedAssets.indices.map { (updatedAssets[$0].id, $0) })
+        var changed: [PhotoAsset] = []
+        var liveTargetXMP: XMPMetadata?
         for targetID in targets {
-            guard let idx = allAssets.firstIndex(where: { $0.id == targetID }) else { continue }
-            var targetXMP = allAssets[idx].xmp
+            guard let idx = indices[targetID] else { continue }
+            var targetXMP = updatedAssets[idx].xmp
             options.apply(from: sourceXMP, to: &targetXMP)
-            allAssets[idx].xmp = targetXMP
-            if liveDevelopAssetID == targetID {
-                liveDevelopXMP = targetXMP
-            }
-            debouncedSyncXMP(for: allAssets[idx])
+            guard targetXMP != updatedAssets[idx].xmp else { continue }
+            updatedAssets[idx].xmp = targetXMP
+            changed.append(updatedAssets[idx])
+            if liveDevelopAssetID == targetID { liveTargetXMP = targetXMP }
         }
+        guard !changed.isEmpty else { return }
+        allAssets = updatedAssets
+        if let liveTargetXMP { liveDevelopXMP = liveTargetXMP }
+        for asset in changed { debouncedSyncXMP(for: asset) }
     }
     
     /// Copies develop settings from the primary (or specified) asset with the given selective options
