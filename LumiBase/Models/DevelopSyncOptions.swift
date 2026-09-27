@@ -124,7 +124,7 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
         whiteBalance = (source.temperature != nil && source.temperature != 0) || (source.tint != nil && source.tint != 0)
         exposure = (source.exposure2012 != nil && source.exposure2012 != 0.0)
         contrast = (source.contrast2012 != nil && source.contrast2012 != 0)
-        highlights = (source.highlights2012 != nil && source.highlights2012 != 0)
+        highlights = (source.highlights2012 != nil && source.highlights2012 != 0) || source.advancedRAWHighlightRecovery == true
         shadows = (source.shadows2012 != nil && source.shadows2012 != 0)
         whites = (source.whites2012 != nil && source.whites2012 != 0)
         blacks = (source.blacks2012 != nil && source.blacks2012 != 0)
@@ -157,6 +157,7 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
         }
         if highlights {
             target.highlights2012 = source.highlights2012
+            target.advancedRAWHighlightRecovery = source.advancedRAWHighlightRecovery
         }
         if shadows {
             target.shadows2012 = source.shadows2012

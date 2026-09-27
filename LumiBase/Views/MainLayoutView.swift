@@ -205,6 +205,14 @@ public struct MainLayoutView: View {
         } message: {
             Text(deleteAlertMessage)
         }
+        .alert("XMP not saved", isPresented: Binding(
+            get: { appState.xmpSaveError != nil },
+            set: { if !$0 { appState.xmpSaveError = nil } }
+        )) {
+            Button("OK", role: .cancel) { appState.xmpSaveError = nil }
+        } message: {
+            Text(appState.xmpSaveError ?? "The setting was not changed.")
+        }
     }
     
     private var deleteAlertTitle: String {

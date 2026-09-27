@@ -72,6 +72,7 @@ public final class AppState: ObservableObject {
     @Published public var exportCompletedCount: Int = 0
     @Published public var exportTotalCount: Int = 0
     @Published public var exportErrorMessage: String?
+    @Published public var xmpSaveError: String?
     private var exportTask: Task<Void, Never>?
     
     // Deletion State
@@ -734,6 +735,45 @@ public final class AppState: ObservableObject {
     
     private var xmpDebounceTasks: [String: Task<Void, Never>] = [:]
     private var liveCommitTask: Task<Void, Never>?
+    private let xmpWriteQueue = DispatchQueue(label: "com.lumibase.xmp-writes", qos: .utility)
+
+    /// A photo's explicit sidecar choice overrides the legacy app preference.
+    /// Missing flags keep their prior behavior until the user chooses per photo.
+    public func advancedRAWHighlightRecovery(for assetID: String) -> Bool {
+        let xmp = (liveDevelopAssetID == assetID ? liveDevelopXMP : nil)
+            ?? allAssets.first(where: { $0.id == assetID })?.xmp
+        return NativeHighlightsService.isAdvancedEnabled(for: xmp)
+    }
+
+    /// This setting belongs to the selected photo, not UserDefaults or Auto Sync.
+    public func setAdvancedRAWHighlightRecovery(_ enabled: Bool, for assetID: String) {
+        guard let index = allAssets.firstIndex(where: { $0.id == assetID }) else { return }
+        var xmp = (liveDevelopAssetID == assetID ? liveDevelopXMP : nil) ?? allAssets[index].xmp
+        guard xmp.advancedRAWHighlightRecovery != enabled else { return }
+        xmp.advancedRAWHighlightRecovery = enabled
+        let asset = allAssets[index]
+        // A checkbox is discrete: finish all previously queued XMP writes and
+        // persist it before reporting success, even if the app closes at once.
+        xmpDebounceTasks[assetID]?.cancel()
+        xmpDebounceTasks.removeValue(forKey: assetID)
+        do {
+            try xmpWriteQueue.sync {
+                try XMPWriter.write(metadata: xmp, to: asset.sidecarXMPURL, originalFilename: asset.filename)
+            }
+        } catch {
+            xmpSaveError = "Could not save \(asset.filename): \(error.localizedDescription)"
+            return
+        }
+        xmpSaveError = nil
+        liveCommitTask?.cancel()
+        liveDevelopAssetID = assetID
+        liveDevelopXMP = xmp
+        allAssets[index].xmp = xmp
+        RAWImageLoader.shared.clearCache()
+        InspectionReadyFrameStore.shared.clearAll()
+        Task { await ProcessedROICacheService.shared.invalidateForRenderingPolicyChange() }
+        highlightsRenderRevision &+= 1
+    }
     
     /// Updates develop/Basic settings on the primary selected asset with instant isolated live update and debounced catalog commit
     public func updateDevelopSettings(for assetID: String? = nil, isDragging: Bool = false, mutate: (inout XMPMetadata) -> Void) {
@@ -1029,7 +1069,7 @@ public final class AppState: ObservableObject {
     
     private func syncXMP(for asset: PhotoAsset) {
         let xmpURL = asset.sidecarXMPURL
-        Task.detached(priority: .utility) {
+        xmpWriteQueue.async {
             try? XMPWriter.write(metadata: asset.xmp, to: xmpURL, originalFilename: asset.filename)
         }
     }

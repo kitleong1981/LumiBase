@@ -50,6 +50,8 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
     public var tint: Int?
     public var contrast2012: Int?
     public var highlights2012: Int?
+    /// LumiBase-specific per-photo rendering policy. nil is a legacy sidecar.
+    public var advancedRAWHighlightRecovery: Bool?
     public var shadows2012: Int?
     public var whites2012: Int?
     public var blacks2012: Int?
@@ -105,6 +107,7 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
         tint: Int? = nil,
         contrast2012: Int? = nil,
         highlights2012: Int? = nil,
+        advancedRAWHighlightRecovery: Bool? = nil,
         shadows2012: Int? = nil,
         whites2012: Int? = nil,
         blacks2012: Int? = nil,
@@ -138,6 +141,7 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
         self.tint = tint
         self.contrast2012 = contrast2012
         self.highlights2012 = highlights2012
+        self.advancedRAWHighlightRecovery = advancedRAWHighlightRecovery
         self.shadows2012 = shadows2012
         self.whites2012 = whites2012
         self.blacks2012 = blacks2012
@@ -200,6 +204,7 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
         (tint != nil && tint != 0) ||
         (contrast2012 != nil && contrast2012 != 0) ||
         (highlights2012 != nil && highlights2012 != 0) ||
+        (advancedRAWHighlightRecovery == true) ||
         (shadows2012 != nil && shadows2012 != 0) ||
         (whites2012 != nil && whites2012 != 0) ||
         (blacks2012 != nil && blacks2012 != 0) ||
@@ -228,6 +233,7 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
             "exposure=\(decimal(exposure2012))", "temperature=\(integer(temperature))",
             "tint=\(integer(tint))", "contrast=\(integer(contrast2012))",
             "highlights=\(integer(highlights2012))", "shadows=\(integer(shadows2012))",
+            "advanced=\(advancedRAWHighlightRecovery.map { $0 ? 1 : 0 } ?? -1)",
             "whites=\(integer(whites2012))", "blacks=\(integer(blacks2012))",
             "dehaze=\(integer(dehaze))", "vibrance=\(integer(vibrance))",
             "saturation=\(integer(saturation))", "clarity=\(integer(clarity2012))",
@@ -244,6 +250,7 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
         tint = nil
         contrast2012 = nil
         highlights2012 = nil
+        advancedRAWHighlightRecovery = nil
         shadows2012 = nil
         whites2012 = nil
         blacks2012 = nil
