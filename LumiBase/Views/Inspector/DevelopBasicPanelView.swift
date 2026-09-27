@@ -440,8 +440,8 @@ public struct DevelopBasicPanelView: View {
                     onReset: { appState.updateDevelopSettings(for: asset.id, isDragging: false) { BasicSliderField.blacks.reset(in: &$0) } }
                 )
                 
-                // Advanced Highlight Recovery (Experimental) Toggle
-                Toggle("Advanced RAW Highlight Recovery (Experimental)", isOn: $appState.isNativeHighlightsEnabled)
+                // Advanced Highlight Recovery Toggle
+                Toggle("Advanced RAW Highlight Recovery", isOn: $appState.isNativeHighlightsEnabled)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 11))
                     .foregroundColor(appState.isNativeHighlightsEnabled ? LightroomTheme.accentYellow : LightroomTheme.textSecondary)

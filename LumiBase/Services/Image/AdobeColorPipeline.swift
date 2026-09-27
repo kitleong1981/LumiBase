@@ -124,11 +124,18 @@ public final class AdobeColorPipeline: Sendable {
         
         let hasToneEdits = (hl != 0) || (sh != 0) || (whites != 0) || (blacks != 0) || (dehaze != 0)
         if hasToneEdits {
+            // For RAW files, preserve calibrated weights for AcceptedHighlightsKernel parity;
+            // for non-RAW files, optimize weights so negative highlights compress bright regions smoothly without crushing midtones.
+            let isRawImage = baseHolder?.isRaw ?? false
+            let hlP2 = isRawImage ? (hlFactor * 0.08) : (hlFactor * 0.03)
+            let hlP3 = isRawImage ? (hlFactor * 0.08) : (hlFactor * 0.14)
+            let hlP4 = (!isRawImage && hlFactor < 0) ? (hlFactor * 0.04) : 0.0
+
             let p0Y = max(0.0, min(0.04, 0.0 + (bFactor * 0.01)))
             let p1Y = max(0.12, min(0.35, 0.24 + (shFactor * 0.06) + (bFactor * 0.20)))
-            let p2Y = max(0.46, min(0.65, 0.50 + (hlFactor * 0.08) + (shFactor * 0.03)))
-            let p3Y = max(0.68, min(0.90, 0.75 + (hlFactor * 0.08) + (wFactor * 0.06)))
-            let p4Y = max(0.92, min(1.0, 1.0 + (wFactor * 0.03)))
+            let p2Y = max(0.46, min(0.65, 0.50 + hlP2 + (shFactor * 0.03)))
+            let p3Y = max(0.60, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
+            let p4Y = max(0.85, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
             
             current = current.applyingFilter("CIToneCurve", parameters: [
                 "inputPoint0": CIVector(x: 0.0, y: p0Y),

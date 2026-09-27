@@ -21,7 +21,7 @@ public struct HighlightsSourceRecipe: Sendable, Equatable {
 /// serial, and never holds the short state lock used by folder/cache invalidation.
 final class NativeHighlightsService: @unchecked Sendable {
     static let shared = NativeHighlightsService()
-    public static var isEnabled: Bool = UserDefaults.standard.bool(forKey: "isNativeHighlightsEnabled")
+    public static var isEnabled: Bool = (UserDefaults.standard.object(forKey: "isNativeHighlightsEnabled") as? Bool) ?? true
     enum NeutralDomain: Equatable { case preview, nativeRAWExport }
     struct Key: Equatable {
         let source: HighlightsSourceRecipe

@@ -49,9 +49,9 @@ public final class AppState: ObservableObject {
     @Published public var isRightInspectorVisible: Bool = true
     @Published public var isFilmstripVisible: Bool = true
     
-    // Native Highlights (Accepted-B) toggle - default false
+    // Native Highlights (Accepted-B) toggle - default true
     @Published public private(set) var highlightsRenderRevision: UInt64 = 0
-    @Published public var isNativeHighlightsEnabled: Bool = UserDefaults.standard.bool(forKey: "isNativeHighlightsEnabled") {
+    @Published public var isNativeHighlightsEnabled: Bool = (UserDefaults.standard.object(forKey: "isNativeHighlightsEnabled") as? Bool) ?? true {
         didSet {
             guard oldValue != isNativeHighlightsEnabled else { return }
             UserDefaults.standard.set(isNativeHighlightsEnabled, forKey: "isNativeHighlightsEnabled")
