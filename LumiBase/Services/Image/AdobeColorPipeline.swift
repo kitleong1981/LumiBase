@@ -8,6 +8,19 @@ public final class AdobeColorPipeline: Sendable {
     
     private let dcpManager = DCPProfileManager.shared
     
+    private static let highlightChromaKernel = CIColorKernel(source: """
+        kernel vec4 highlightChromaInfill(__sample s, float amount) {
+            vec3 rgb = clamp(s.rgb, 0.0, 1.0);
+            float luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+            float gate = clamp((luma - 0.40) / 0.45, 0.0, 1.0);
+            gate = gate * gate * (3.0 - 2.0 * gate);
+            float warmFactor = clamp((rgb.r - rgb.b + 0.15) * 2.0, 0.0, 1.0);
+            float boost = 1.0 + amount * gate * (0.35 + 0.50 * warmFactor);
+            vec3 chrom = luma + (rgb - luma) * boost;
+            return vec4(clamp(chrom, 0.0, 1.0), s.a);
+        }
+        """)
+    
     public init() {}
     
     /// Processes a raw CIImage through the calibrated Adobe Camera Raw emulation pipeline
@@ -122,20 +135,44 @@ public final class AdobeColorPipeline: Sendable {
         let wFactor = whites / 100.0
         let bFactor = blacks / 100.0
         
+        let isRawImage = baseHolder?.isRaw ?? false
+        let isAdvancedRaw = isRawImage && NativeHighlightsService.isAdvancedEnabled(for: xmp)
+        
         let hasToneEdits = (hl != 0) || (sh != 0) || (whites != 0) || (blacks != 0) || (dehaze != 0)
         if hasToneEdits {
-            // For RAW files, preserve calibrated weights for AcceptedHighlightsKernel parity;
-            // for non-RAW files, optimize weights so negative highlights compress bright regions smoothly without crushing midtones.
-            let isRawImage = baseHolder?.isRaw ?? false
-            let hlP2 = isRawImage ? (hlFactor * 0.08) : (hlFactor * 0.03)
-            let hlP3 = isRawImage ? (hlFactor * 0.08) : (hlFactor * 0.14)
-            let hlP4 = (!isRawImage && hlFactor < 0) ? (hlFactor * 0.04) : 0.0
+            // For RAW files with Advanced RAW Highlight Recovery enabled, preserve calibrated weights for AcceptedHighlightsKernel parity;
+            // for standard pipeline (RAW without Advanced Recovery or non-RAW files), apply full PV2012 highlight rolloff.
+            let hlP2: Double
+            let hlP3: Double
+            let hlP4: Double
+            
+            if isAdvancedRaw {
+                hlP2 = hlFactor * 0.08
+                hlP3 = hlFactor * 0.08
+                hlP4 = 0.0
+            } else {
+                if hlFactor < 0 {
+                    // PV2012 negative highlights: compress specular highlights and upper highlights
+                    // while preserving midtones so water, foliage and midtones stay vibrant and bright.
+                    hlP2 = hlFactor * 0.02
+                    hlP3 = hlFactor * 0.20
+                    hlP4 = hlFactor * 0.16
+                } else {
+                    hlP2 = hlFactor * 0.04
+                    hlP3 = hlFactor * 0.14
+                    hlP4 = 0.0
+                }
+            }
 
             let p0Y = max(0.0, min(0.04, 0.0 + (bFactor * 0.01)))
             let p1Y = max(0.12, min(0.35, 0.24 + (shFactor * 0.06) + (bFactor * 0.20)))
             let p2Y = max(0.46, min(0.65, 0.50 + hlP2 + (shFactor * 0.03)))
-            let p3Y = max(0.60, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
-            let p4Y = max(0.85, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
+            let p3Y = isAdvancedRaw
+                ? max(0.60, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
+                : max(0.50, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
+            let p4Y = isAdvancedRaw
+                ? max(0.85, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
+                : max(0.80, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
             
             current = current.applyingFilter("CIToneCurve", parameters: [
                 "inputPoint0": CIVector(x: 0.0, y: p0Y),
@@ -144,6 +181,15 @@ public final class AdobeColorPipeline: Sendable {
                 "inputPoint3": CIVector(x: 0.75, y: p3Y),
                 "inputPoint4": CIVector(x: 1.0, y: p4Y)
             ])
+        }
+        
+        // 6. Highlight Chroma Recovery (Warm chromaticity infill for recovered highlights in standard mode)
+        if !isBW && !isAdvancedRaw && hlFactor < -0.05 {
+            let amount = Float(-hlFactor * 0.40)
+            if let kernel = Self.highlightChromaKernel,
+               let enriched = kernel.apply(extent: current.extent, arguments: [current, amount]) {
+                current = enriched
+            }
         }
         
         // 7. Texture (Fine Detail: >0 Sharpen, <0 Skin Soften)

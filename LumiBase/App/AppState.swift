@@ -185,11 +185,11 @@ public final class AppState: ObservableObject {
         if showDeleteConfirmation { return false }
         
         // Only ignore keyboard shortcuts if user is currently typing in an active text input field
-        if let responder = NSApp.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
+        if let responder = NSApplication.shared.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
             // If user presses Escape while in a text input field, dismiss focus and consume event
             if keyCode == 53 { // Escape
                 DispatchQueue.main.async {
-                    NSApp.keyWindow?.makeFirstResponder(nil)
+                    NSApplication.shared.keyWindow?.makeFirstResponder(nil)
                 }
                 return true
             }
@@ -539,9 +539,9 @@ public final class AppState: ObservableObject {
     /// - Range (Shift + click): select contiguous range of assets between anchor and clicked asset
     public func selectAsset(_ asset: PhotoAsset, isToggle: Bool = false, isRange: Bool = false) {
         // Resign any active text input focus (like search bar) when user clicks to select photos
-        if let responder = NSApp.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
+        if let responder = NSApplication.shared.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
             DispatchQueue.main.async {
-                NSApp.keyWindow?.makeFirstResponder(nil)
+                NSApplication.shared.keyWindow?.makeFirstResponder(nil)
             }
         }
         
@@ -943,9 +943,9 @@ public final class AppState: ObservableObject {
     
     /// Toggles between Edit (Develop adjustments) and Crop & Straighten mode
     public func toggleCropMode() {
-        if let responder = NSApp.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
+        if let responder = NSApplication.shared.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
             DispatchQueue.main.async {
-                NSApp.keyWindow?.makeFirstResponder(nil)
+                NSApplication.shared.keyWindow?.makeFirstResponder(nil)
             }
         }
         if activeDevelopTool == .crop {

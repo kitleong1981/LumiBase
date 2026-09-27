@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Standard Pipeline Highlight Recovery Enhancement (`AdobeColorPipeline`)**:
+  - Implemented full Adobe PV2012 highlight shoulder rolloff in standard pipeline (`Advanced RAW Highlight Recovery` off or non-RAW files): negative highlights (`hl = -100`) smoothly compress specular highlights (`p4Y` down to ~0.84) and upper highlights (`p3Y` down to ~0.55), while preserving midtones (`hlP2 = -0.02`) so water, sea, and foreground horizons retain proper contrast and punch.
+  - Introduced `highlightChromaKernel` to inject chromaticity infill into recovered highlights (`luma > 0.40`), restoring vivid sunset ambers, oranges, and cloud warmth instead of washing out into gray.
+  - Preserved exact calibrated endpoint values (`hlP2 = 0.08`, `hlP3 = 0.08`, `hlP4 = 0.0`) when preparing endpoints for `AcceptedHighlightsKernel` to ensure 100% numerical parity for the advanced recovery workflow.
+  - Added unit test `testStandardHighlightRecoveryCompressesHighlightsAndPreservesMidtones` to verify highlight compression and midtone preservation.
+
+### Improved
+- **Advanced RAW Highlight Recovery Tuning (`AcceptedHighlightsKernel` & `NativeHighlightsService`)**:
+  - Raised gate luminance threshold in `AcceptedHighlightsKernel.prepare` from `(80, 200)` to `(140, 235)` to protect midtone water and foliage from being pulled into the correction field.
+  - Reduced guided filter regularization parameter from `0.25 * 0.25` to `0.08 * 0.08`, preventing dark border halos around high-contrast horizon edges.
+  - Replaced the warm desaturation penalty in `AcceptedHighlightsKernel.colorKernel` with warm highlight chroma infill, preventing sunset skies from turning desaturated gray.
+  - Clamped `displayAnchor` in `NativeHighlightsService.strengthKernel` to ensure display gamut boundaries.
+  - Safely accessed `NSApplication.shared` in `AppState` focus-resigning logic to eliminate nil unwrapping when invoked in test or isolated contexts.
+
 ### Fixed
 - **Preview Jitter During Highlights Adjustment**:
   - Pinned `outputExtent` to `targetExtent` in `RAWImageLoader.renderProcessed` when uncropped, eliminating subpixel integer rounding discrepancies between `AdobeColorPipeline` and `NativeHighlightsService`.

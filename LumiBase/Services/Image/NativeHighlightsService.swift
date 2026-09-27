@@ -155,7 +155,8 @@ final class NativeHighlightsService: @unchecked Sendable {
     private static let strengthKernel = CIColorKernel(source: """
         kernel vec4 highlightsStrength(__sample zero, __sample anchor, float amount) {
             vec3 displayZero = clamp(zero.rgb, 0.0, 1.0);
-            return vec4(clamp(displayZero + amount * (anchor.rgb - displayZero), 0.0, 1.0), anchor.a);
+            vec3 displayAnchor = clamp(anchor.rgb, 0.0, 1.0);
+            return vec4(clamp(displayZero + amount * (displayAnchor - displayZero), 0.0, 1.0), anchor.a);
         }
         """)
 

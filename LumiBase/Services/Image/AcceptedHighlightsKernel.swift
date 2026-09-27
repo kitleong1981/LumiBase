@@ -66,7 +66,7 @@ enum AcceptedHighlightsKernel {
             let tg = quantizeSRGBLinear(lowTarget[ti + 1])
             let tb = quantizeSRGBLinear(lowTarget[ti + 2])
             let ber = encodeSRGB(br), beg = encodeSRGB(bg), beb = encodeSRGB(bb)
-            let gate = smooth((0.2126 * ber + 0.7152 * beg + 0.0722 * beb) * 255, 80, 200)
+            let gate = smooth((0.2126 * ber + 0.7152 * beg + 0.0722 * beb) * 255, 140, 235)
             let cr = br * (1 - gate) + tr * gate
             let cg = bg * (1 - gate) + tg * gate
             let cb = bb * (1 - gate) + tb * gate
@@ -90,7 +90,7 @@ enum AcceptedHighlightsKernel {
         var b = [Float](repeating: 0, count: count)
         for i in 0..<count {
             let variance = max(meanGuideSquared[i] - meanGuide[i] * meanGuide[i], 0)
-            a[i] = (meanGuideDetail[i] - meanGuide[i] * meanDetail[i]) / (variance + 0.25 * 0.25)
+            a[i] = (meanGuideDetail[i] - meanGuide[i] * meanDetail[i]) / (variance + 0.08 * 0.08)
             b[i] = meanDetail[i] - a[i] * meanGuide[i]
         }
         let meanA = boxMeanParallel(a, width: lowWidth, height: lowHeight)
@@ -298,10 +298,11 @@ enum AcceptedHighlightsKernel {
             float d = correction.r;
             float3 z = te * exp2(d);
             float3 l = lab(z);
-            float warm = sat(l.x,0.35,0.75)*sat(l.z,0.015,0.07)*sat(l.y,-0.01,0.04)*sat(dot(bs,float3(0.2126,0.7152,0.0722))*255.0,80.0,160.0);
-            float3 tonedLab = float3(l.x,l.yz*(1.0-0.18*warm));
-            float3 toned = max(invlab(tonedLab),float3(0.0));
-            z = warm > 0.0 ? toned : z;
+            // Highlight warm chroma recovery: as overexposed highlights are recovered (d > 0.0),
+            // restore and enrich natural warm sunset/cloud saturation instead of washing out into gray.
+            float highlightChromaBoost = 1.0 + clamp(d * 0.35, 0.0, 0.45) * sat(l.x, 0.40, 0.90) * sat(l.z, 0.005, 0.08);
+            float3 enrichedLab = float3(l.x, l.yz * highlightChromaBoost);
+            z = max(invlab(enrichedLab), float3(0.0));
             float mx=max(z.r,max(z.g,z.b));
             float excess=max(mx-0.85,0.0);
             float mapped=0.85+0.149*excess/(excess+0.149);

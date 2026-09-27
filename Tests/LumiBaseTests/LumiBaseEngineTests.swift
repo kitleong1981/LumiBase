@@ -94,6 +94,50 @@ final class LumiBaseEngineTests: XCTestCase {
         XCTAssertEqual(processed.extent.width, 100)
     }
     
+    func testStandardHighlightRecoveryCompressesHighlightsAndPreservesMidtones() {
+        let pipeline = AdobeColorPipeline.shared
+        let context = CIContext(options: [.useSoftwareRenderer: true])
+        
+        // Create an image with a highlight patch and a midtone patch
+        let highlightColor = CIColor(red: 0.95, green: 0.85, blue: 0.70)
+        let midtoneColor = CIColor(red: 0.50, green: 0.50, blue: 0.50)
+        
+        let highlightImg = CIImage(color: highlightColor).cropped(to: CGRect(x: 0, y: 0, width: 10, height: 10))
+        let midtoneImg = CIImage(color: midtoneColor).cropped(to: CGRect(x: 0, y: 0, width: 10, height: 10))
+        
+        var neutralXMP = XMPMetadata()
+        neutralXMP.advancedRAWHighlightRecovery = false
+        neutralXMP.highlights2012 = 0
+        
+        var recoveredXMP = XMPMetadata()
+        recoveredXMP.advancedRAWHighlightRecovery = false
+        recoveredXMP.highlights2012 = -100
+        
+        let processedNeutralHL = pipeline.process(image: highlightImg, cameraModel: nil, xmp: neutralXMP)
+        let processedRecoveredHL = pipeline.process(image: highlightImg, cameraModel: nil, xmp: recoveredXMP)
+        
+        let processedNeutralMid = pipeline.process(image: midtoneImg, cameraModel: nil, xmp: neutralXMP)
+        let processedRecoveredMid = pipeline.process(image: midtoneImg, cameraModel: nil, xmp: recoveredXMP)
+        
+        var bitmapNeutralHL = [UInt8](repeating: 0, count: 4)
+        var bitmapRecoveredHL = [UInt8](repeating: 0, count: 4)
+        var bitmapNeutralMid = [UInt8](repeating: 0, count: 4)
+        var bitmapRecoveredMid = [UInt8](repeating: 0, count: 4)
+        
+        let cs = CGColorSpaceCreateDeviceRGB()
+        context.render(processedNeutralHL, toBitmap: &bitmapNeutralHL, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
+        context.render(processedRecoveredHL, toBitmap: &bitmapRecoveredHL, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
+        context.render(processedNeutralMid, toBitmap: &bitmapNeutralMid, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
+        context.render(processedRecoveredMid, toBitmap: &bitmapRecoveredMid, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
+        
+        // Highlights must be visibly compressed down (e.g. from ~240 down towards ~205-225)
+        XCTAssertLessThan(bitmapRecoveredHL[0], bitmapNeutralHL[0])
+        
+        // Midtones should be well preserved (difference less than 15 out of 255)
+        let midDiff = abs(Int(bitmapRecoveredMid[0]) - Int(bitmapNeutralMid[0]))
+        XCTAssertLessThanOrEqual(midDiff, 15, "Midtones must not be crushed by highlight recovery")
+    }
+    
     @MainActor
     func testSelectAllAndSelectedAssets() {
         let appState = AppState()
