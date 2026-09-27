@@ -60,6 +60,17 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
     public var saturation: Int?
     public var clarity2012: Int?
     public var texture: Int?
+    /// Per-photo A/B selectors; false/nil keeps the established renderer.
+    public var experimentalContrast: Bool = false
+    public var experimentalShadows: Bool = false
+    public var experimentalWhites: Bool = false
+    public var experimentalDehaze: Bool = false
+    public var experimentalTexture: Bool = false
+    /// Manual corrections use LumiBase's own namespace, not Adobe lens-profile claims.
+    public var lensDistortion: Int?
+    public var lensPurpleDefringe: Int?
+    public var lensGreenDefringe: Int?
+    public var lensVignette: Int?
     public var cropTop: Double?
     public var cropLeft: Double?
     public var cropBottom: Double?
@@ -116,6 +127,15 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
         saturation: Int? = nil,
         clarity2012: Int? = nil,
         texture: Int? = nil,
+        experimentalContrast: Bool = false,
+        experimentalShadows: Bool = false,
+        experimentalWhites: Bool = false,
+        experimentalDehaze: Bool = false,
+        experimentalTexture: Bool = false,
+        lensDistortion: Int? = nil,
+        lensPurpleDefringe: Int? = nil,
+        lensGreenDefringe: Int? = nil,
+        lensVignette: Int? = nil,
         hasCrop: Bool = false,
         cropTop: Double? = nil,
         cropLeft: Double? = nil,
@@ -150,6 +170,15 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
         self.saturation = saturation
         self.clarity2012 = clarity2012
         self.texture = texture
+        self.experimentalContrast = experimentalContrast
+        self.experimentalShadows = experimentalShadows
+        self.experimentalWhites = experimentalWhites
+        self.experimentalDehaze = experimentalDehaze
+        self.experimentalTexture = experimentalTexture
+        self.lensDistortion = lensDistortion
+        self.lensPurpleDefringe = lensPurpleDefringe
+        self.lensGreenDefringe = lensGreenDefringe
+        self.lensVignette = lensVignette
         self._hasCrop = hasCrop
         self.cropTop = cropTop
         self.cropLeft = cropLeft
@@ -213,6 +242,11 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
         (saturation != nil && saturation != 0) ||
         (clarity2012 != nil && clarity2012 != 0) ||
         (texture != nil && texture != 0) ||
+        experimentalContrast || experimentalShadows || experimentalWhites || experimentalDehaze || experimentalTexture ||
+        (lensDistortion != nil && lensDistortion != 0) ||
+        (lensPurpleDefringe != nil && lensPurpleDefringe != 0) ||
+        (lensGreenDefringe != nil && lensGreenDefringe != 0) ||
+        (lensVignette != nil && lensVignette != 0) ||
         (convertToGrayscale == true) ||
         hasCrop
     }
@@ -238,6 +272,8 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
             "dehaze=\(integer(dehaze))", "vibrance=\(integer(vibrance))",
             "saturation=\(integer(saturation))", "clarity=\(integer(clarity2012))",
             "texture=\(integer(texture))",
+            "experimental=\(experimentalContrast ? 1 : 0):\(experimentalShadows ? 1 : 0):\(experimentalWhites ? 1 : 0):\(experimentalDehaze ? 1 : 0):\(experimentalTexture ? 1 : 0)",
+            "lens=\(integer(lensDistortion)):\(integer(lensPurpleDefringe)):\(integer(lensGreenDefringe)):\(integer(lensVignette))",
             "crop=\(hasCrop ? 1 : 0):\(decimal(cropTop)):\(decimal(cropLeft)):\(decimal(cropBottom)):\(decimal(cropRight)):\(decimal(cropAngle))",
             "profile=\(string(cameraProfile))", "grayscale=\(convertToGrayscale.map { $0 ? 1 : 0 } ?? -1)"
         ].joined(separator: "|")
@@ -259,6 +295,15 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
         saturation = nil
         clarity2012 = nil
         texture = nil
+        experimentalContrast = false
+        experimentalShadows = false
+        experimentalWhites = false
+        experimentalDehaze = false
+        experimentalTexture = false
+        lensDistortion = nil
+        lensPurpleDefringe = nil
+        lensGreenDefringe = nil
+        lensVignette = nil
         convertToGrayscale = nil
         resetCrop()
     }

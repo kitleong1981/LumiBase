@@ -606,8 +606,89 @@ public struct DevelopBasicPanelView: View {
                 }
             }
             .padding(.horizontal, 10)
+
+            Divider().background(LightroomTheme.dividerColor)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Experimental Algorithms · A/B")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(LightroomTheme.accentYellow)
+                Text("Each switch affects only its named slider. Off = original rendering; zero sliders remain neutral.")
+                    .font(.system(size: 9))
+                    .foregroundColor(LightroomTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                experimentalToggle("Contrast · preserve hue", \.experimentalContrast)
+                experimentalToggle("Shadows · stronger lift", \.experimentalShadows)
+                experimentalToggle("Whites · gentle shoulder", \.experimentalWhites)
+                experimentalToggle("Dehaze · local veil", \.experimentalDehaze)
+                experimentalToggle("Texture · edge-aware", \.experimentalTexture)
+            }
+            .padding(.horizontal, 10)
+
+            Divider().background(LightroomTheme.dividerColor)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Lens Corrections · Manual")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(LightroomTheme.textSecondary)
+                Text("Experimental; no lens-profile detection. Check corners and colored edges at 100%.")
+                    .font(.system(size: 9))
+                    .foregroundColor(LightroomTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                lensSlider("Distortion", \.lensDistortion, range: -100...100)
+                lensSlider("Defringe · Purple", \.lensPurpleDefringe, range: 0...100)
+                lensSlider("Defringe · Green", \.lensGreenDefringe, range: 0...100)
+                lensSlider("Vignetting", \.lensVignette, range: -100...100)
+            }
+            .padding(.horizontal, 10)
         }
         .padding(.vertical, 4)
+    }
+
+    private func experimentalToggle(_ title: String, _ keyPath: WritableKeyPath<XMPMetadata, Bool>) -> some View {
+        Toggle(title, isOn: Binding(
+            get: { currentXMP[keyPath: keyPath] },
+            set: { enabled in
+                appState.updateDevelopSettings(for: asset.id, isDragging: false) {
+                    $0[keyPath: keyPath] = enabled
+                }
+            }
+        ))
+        .toggleStyle(.checkbox)
+        .font(.system(size: 10))
+        .foregroundColor(LightroomTheme.textSecondary)
+    }
+
+    private func lensSlider(_ title: String, _ keyPath: WritableKeyPath<XMPMetadata, Int?>,
+                            range: ClosedRange<Double>) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 10))
+                .foregroundColor(LightroomTheme.textSecondary)
+                .frame(width: 100, alignment: .leading)
+            Slider(value: Binding(
+                get: { Double(currentXMP[keyPath: keyPath] ?? 0) },
+                set: { value in
+                    appState.updateDevelopSettings(for: asset.id, isDragging: true) {
+                        $0[keyPath: keyPath] = Int(value) == 0 ? nil : Int(value)
+                    }
+                }
+            ), in: range, step: 1) { editing in
+                if !editing { appState.updateDevelopSettings(for: asset.id, isDragging: false) { _ in } }
+            }
+            .controlSize(.small)
+            Text(String(format: "%+d", currentXMP[keyPath: keyPath] ?? 0))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(LightroomTheme.textPrimary)
+                .frame(width: 34, alignment: .trailing)
+            Button("↺") {
+                appState.updateDevelopSettings(for: asset.id, isDragging: false) {
+                    $0[keyPath: keyPath] = nil
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Reset \(title)")
+        }
     }
     
     private var wbModeTitle: String {

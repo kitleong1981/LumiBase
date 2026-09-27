@@ -20,6 +20,24 @@ public final class XMPWriter: Sendable {
         let advancedAttr = metadata.advancedRAWHighlightRecovery.map {
             " lumibase:AdvancedRAWHighlightRecovery=\"\($0 ? "true" : "false")\""
         } ?? ""
+        let experiments: [(String, Bool)] = [
+            ("ExperimentalContrast", metadata.experimentalContrast),
+            ("ExperimentalShadows", metadata.experimentalShadows),
+            ("ExperimentalWhites", metadata.experimentalWhites),
+            ("ExperimentalDehaze", metadata.experimentalDehaze),
+            ("ExperimentalTexture", metadata.experimentalTexture)
+        ]
+        let experimentAttrs = experiments.filter { $0.1 }.map { " lumibase:\($0.0)=\"true\"" }.joined()
+        let lensValues: [(String, Int?)] = [
+            ("LensDistortion", metadata.lensDistortion),
+            ("LensPurpleDefringe", metadata.lensPurpleDefringe),
+            ("LensGreenDefringe", metadata.lensGreenDefringe),
+            ("LensVignette", metadata.lensVignette)
+        ]
+        let lensAttrs = lensValues.compactMap { name, value -> String? in
+            guard let value, value != 0 else { return nil }
+            return " lumibase:\(name)=\"\(value)\""
+        }.joined()
         let labelAttr = metadata.colorLabel != .none ? " xmp:Label=\"\(metadata.colorLabel.rawValue)\"" : ""
         let flagAttr: String
         switch metadata.flag {
@@ -139,7 +157,7 @@ public final class XMPWriter: Sendable {
             xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
             xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
             xmlns:dc="http://purl.org/dc/elements/1.1/"
-            xmlns:lumibase="https://github.com/tedyeng/LumiBase/ns/1.0/"\(rawFileNameAttr)\(ratingAttr)\(labelAttr)\(flagAttr)\(advancedAttr)\(developAttrs)>
+            xmlns:lumibase="https://github.com/tedyeng/LumiBase/ns/1.0/"\(rawFileNameAttr)\(ratingAttr)\(labelAttr)\(flagAttr)\(advancedAttr)\(experimentAttrs)\(lensAttrs)\(developAttrs)>
         \(keywordsXML.isEmpty ? "" : keywordsXML + "\n")\(titleXML.isEmpty ? "" : titleXML + "\n")\(captionXML.isEmpty ? "" : captionXML + "\n")  </rdf:Description>
          </rdf:RDF>
         </x:xmpmeta>

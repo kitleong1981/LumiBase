@@ -1089,7 +1089,7 @@ public struct LoupeView: View {
         // Source metadata is resolved in this async selection task, never from the SwiftUI body.
         // A cached identity is not allowed to supply its own expected orientation.
         let sourceOrientation = asset.sourceOrientation
-        if roiPrototypeEnabled, is100PercentZoom, let sourceOrientation,
+        if roiPrototypeEnabled, is100PercentZoom, (lookupXMP.lensDistortion ?? 0) == 0, let sourceOrientation,
            let capturedPublication = cachedROIPublicationState(asset: asset, ticket: ticket, settings: lookupSettings),
            let match = await InspectionCachedROIPublication.lookup(captured: capturedPublication,
                 current: { [self] in cachedROIPublicationState(asset: asset, ticket: ticket, settings: ProcessedROIRequest.settingsIdentity(activeXMP(for: asset))) },
@@ -1224,7 +1224,7 @@ public struct LoupeView: View {
         let targetID = asset.id
         let model = asset.cameraMetadata.model
         let native = is100PercentZoom
-        let roiRect = native
+        let roiRect = native && (renderXMP.lensDistortion ?? 0) == 0
             ? InspectionROI.requestRect(enabled: roiPrototypeEnabled, nativeSupported: holder.supportsNativeInspection,
                 extent: holder.fullExtent, center: inspection.center, viewport: viewportPixels, backing: backingScale)
             : nil
@@ -1361,6 +1361,7 @@ public struct LoupeView: View {
             let neighborIndex = index + step
             guard assets.indices.contains(neighborIndex) else { continue }
             let neighbor = assets[neighborIndex]
+            if (neighbor.xmp.lensDistortion ?? 0) != 0 { continue }
             guard let (extent, orientation) = ProcessedROIRequest.orientedExtent(for: neighbor) else { continue }
             let rect = InspectionROI.sourceRect(extent: extent, center: center, viewport: viewport, backing: backing)
             requests.append(ProcessedROIRequest.make(asset: neighbor, xmp: neighbor.xmp, cameraModel: neighbor.cameraMetadata.model,

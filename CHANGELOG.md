@@ -5,6 +5,13 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - Isolated experimental tone and manual lens controls
+
+- Add per-photo A/B switches for Contrast, Shadows, Whites, Dehaze and Texture; each can be compared against its unchanged legacy renderer without changing the corresponding slider value.
+- Add a separate manual Lens Corrections section below Presence: radial Distortion, edge-localized Purple/Green Defringe, and Vignetting. These are not Adobe lens profiles or pixel-identical Lightroom algorithms.
+- Persist test choices in LumiBase-specific XMP fields, include them in thumbnail/ROI cache identities, selectively sync them with their associated controls, and reset them with other Develop settings. Manual lens settings are opt-in for Sync Settings.
+- This branch is an isolated preview for evaluation; do not merge into main before visual testing, especially high-contrast edges, skin tones, image corners, export and RAW 100% view. Earlier LumiBase builds may discard the custom fields when rewriting a sidecar: test on copies of photos.
+
 ## [1.10.1] - Persist Advanced RAW Highlight Recovery per photo
 
 - Save the Advanced RAW Highlight Recovery checkbox immediately as `lumibase:AdvancedRAWHighlightRecovery` in each photo's XMP sidecar; parse both true and false after restarting or moving to a separately identified preview app. A failed atomic write leaves the checkbox unchanged and shows an error. Explicit photo settings override the legacy app-wide preference; old sidecars without this property retain their previous preference fallback until the checkbox is changed.

@@ -74,14 +74,18 @@ public final class AdobeColorPipeline: Sendable {
             }
         }
         
-        // 3. Contrast & Dehaze Contrast (Lightroom PV2012 midtone punch)
+        // 3. Independent A/B tone operators; preserve the original path when off.
         let dehaze = Double(xmp.dehaze ?? 0)
-        let contrastVal = Double(xmp.contrast2012 ?? 0) + (dehaze * 0.40)
+        let contrastVal = Double(xmp.experimentalContrast ? 0 : (xmp.contrast2012 ?? 0)) +
+            (xmp.experimentalDehaze ? 0 : dehaze * 0.40)
         if contrastVal != 0 {
             let contrastFactor = max(0.6, min(1.6, 1.0 + (contrastVal / 100.0 * 0.20)))
             current = current.applyingFilter("CIColorControls", parameters: [
                 kCIInputContrastKey: contrastFactor
             ])
+        }
+        if xmp.experimentalContrast, let amount = xmp.contrast2012, amount != 0 {
+            current = ExperimentalToneService.contrast(current, amount: amount)
         }
         
         // 4. Black & White or Vibrance and Saturation (Color enrichment before tone luminosity mapping)
@@ -95,7 +99,8 @@ public final class AdobeColorPipeline: Sendable {
             current = current.applyingFilter("CIPhotoEffectMono")
         } else {
             let vib = Double(xmp.vibrance ?? 0)
-            let totalVib = ((vib / 100.0 * 0.80) + (dehaze / 100.0 * 0.20)) * hlDesatScale
+            let totalVib = ((vib / 100.0 * 0.80) +
+                (xmp.experimentalDehaze ? 0 : dehaze / 100.0 * 0.20)) * hlDesatScale
             if abs(totalVib) > 0.01 {
                 current = current.applyingFilter("CIVibrance", parameters: [
                     "inputAmount": totalVib
@@ -104,7 +109,7 @@ public final class AdobeColorPipeline: Sendable {
             
             // Saturation (-100 = 0.0 / Mono, 0 = 1.0 / Neutral, +100 = 2.0 / Vivid)
             let sat = Double(xmp.saturation ?? 0)
-            let dehazeSatBoost = dehaze / 100.0 * 0.10
+            let dehazeSatBoost = xmp.experimentalDehaze ? 0 : dehaze / 100.0 * 0.10
             let rawSat = 1.0 + (((sat / 100.0 * 0.40) + dehazeSatBoost) * hlDesatScale)
             let saturationFactor = max(0.0, min(2.0, rawSat))
             if abs(saturationFactor - 1.0) > 0.005 {
@@ -115,14 +120,15 @@ public final class AdobeColorPipeline: Sendable {
         }
         
         // 5. PV2012 Basic Tone Curve (Highlights, Shadows, Whites, Blacks)
-        let sh = Double(xmp.shadows2012 ?? 0)
-        let whites = Double(xmp.whites2012 ?? 0)
+        let sh = Double(xmp.experimentalShadows ? 0 : (xmp.shadows2012 ?? 0))
+        let whites = Double(xmp.experimentalWhites ? 0 : (xmp.whites2012 ?? 0))
         let blacks = Double(xmp.blacks2012 ?? 0)
         let shFactor = sh / 100.0
         let wFactor = whites / 100.0
         let bFactor = blacks / 100.0
         
-        let hasToneEdits = (hl != 0) || (sh != 0) || (whites != 0) || (blacks != 0) || (dehaze != 0)
+        let hasToneEdits = (hl != 0) || (sh != 0) || (whites != 0) || (blacks != 0) ||
+            (dehaze != 0 && !xmp.experimentalDehaze)
         if hasToneEdits {
             let p0Y = max(0.0, min(0.04, 0.0 + (bFactor * 0.01)))
             let p1Y = max(0.12, min(0.35, 0.24 + (shFactor * 0.06) + (bFactor * 0.20)))
@@ -138,10 +144,21 @@ public final class AdobeColorPipeline: Sendable {
                 "inputPoint4": CIVector(x: 1.0, y: p4Y)
             ])
         }
+        if xmp.experimentalShadows, let amount = xmp.shadows2012, amount != 0 {
+            current = ExperimentalToneService.shadows(current, amount: amount)
+        }
+        if xmp.experimentalWhites, let amount = xmp.whites2012, amount != 0 {
+            current = ExperimentalToneService.whites(current, amount: amount)
+        }
+        if xmp.experimentalDehaze, let amount = xmp.dehaze, amount != 0 {
+            current = ExperimentalToneService.dehaze(current, amount: amount)
+        }
         
         // 7. Texture (Fine Detail: >0 Sharpen, <0 Skin Soften)
         if let texture = xmp.texture, texture != 0 {
-            if texture > 0 {
+            if xmp.experimentalTexture {
+                current = ExperimentalToneService.texture(current, amount: texture)
+            } else if texture > 0 {
                 let texIntensity = min(1.0, Double(texture) / 100.0 * 0.8)
                 current = current.applyingFilter("CIUnsharpMask", parameters: [
                     kCIInputRadiusKey: 1.2,
@@ -179,6 +196,15 @@ public final class AdobeColorPipeline: Sendable {
             }
         }
         
+        // Lens geometry is computed before cropping, in full-frame coordinates.
+        current = ManualLensCorrectionService.process(
+            image: current,
+            distortion: xmp.lensDistortion ?? 0,
+            purpleDefringe: xmp.lensPurpleDefringe ?? 0,
+            greenDefringe: xmp.lensGreenDefringe ?? 0,
+            vignette: xmp.lensVignette ?? 0
+        )
+
         // 9. Crop and Straighten (Rotation & Crop Box)
         if xmp.hasCrop {
             let extent = current.extent

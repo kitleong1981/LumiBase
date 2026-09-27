@@ -48,6 +48,15 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
     private var parsedSaturation: Int?
     private var parsedClarity: Int?
     private var parsedTexture: Int?
+    private var parsedExperimentalContrast = false
+    private var parsedExperimentalShadows = false
+    private var parsedExperimentalWhites = false
+    private var parsedExperimentalDehaze = false
+    private var parsedExperimentalTexture = false
+    private var parsedLensDistortion: Int?
+    private var parsedLensPurpleDefringe: Int?
+    private var parsedLensGreenDefringe: Int?
+    private var parsedLensVignette: Int?
     private var parsedHasCrop: Bool = false
     private var parsedCropTop: Double?
     private var parsedCropLeft: Double?
@@ -94,6 +103,15 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
                 saturation: parsedSaturation,
                 clarity2012: parsedClarity,
                 texture: parsedTexture,
+                experimentalContrast: parsedExperimentalContrast,
+                experimentalShadows: parsedExperimentalShadows,
+                experimentalWhites: parsedExperimentalWhites,
+                experimentalDehaze: parsedExperimentalDehaze,
+                experimentalTexture: parsedExperimentalTexture,
+                lensDistortion: parsedLensDistortion,
+                lensPurpleDefringe: parsedLensPurpleDefringe,
+                lensGreenDefringe: parsedLensGreenDefringe,
+                lensVignette: parsedLensVignette,
                 hasCrop: parsedHasCrop,
                 cropTop: parsedCropTop,
                 cropLeft: parsedCropLeft,
@@ -148,6 +166,24 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
                 parsedHighlights = Int(val)
             } else if key == "lumibase:advancedrawhighlightrecovery" {
                 parsedAdvancedRAWHighlightRecovery = Self.parseBoolean(val)
+            } else if key == "lumibase:experimentalcontrast" {
+                parsedExperimentalContrast = Self.parseBoolean(val) == true
+            } else if key == "lumibase:experimentalshadows" {
+                parsedExperimentalShadows = Self.parseBoolean(val) == true
+            } else if key == "lumibase:experimentalwhites" {
+                parsedExperimentalWhites = Self.parseBoolean(val) == true
+            } else if key == "lumibase:experimentaldehaze" {
+                parsedExperimentalDehaze = Self.parseBoolean(val) == true
+            } else if key == "lumibase:experimentaltexture" {
+                parsedExperimentalTexture = Self.parseBoolean(val) == true
+            } else if key == "lumibase:lensdistortion" {
+                parsedLensDistortion = Int(val)
+            } else if key == "lumibase:lenspurpledefringe" {
+                parsedLensPurpleDefringe = Int(val)
+            } else if key == "lumibase:lensgreendefringe" {
+                parsedLensGreenDefringe = Int(val)
+            } else if key == "lumibase:lensvignette" {
+                parsedLensVignette = Int(val)
             } else if key.hasSuffix("shadows2012") {
                 parsedShadows = Int(val)
             } else if key.hasSuffix("whites2012") {
@@ -224,6 +260,24 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
             parsedContrast = Int(trimmed)
         } else if lowerElement == "lumibase:advancedrawhighlightrecovery" {
             parsedAdvancedRAWHighlightRecovery = Self.parseBoolean(trimmed)
+        } else if lowerElement == "lumibase:experimentalcontrast" {
+            parsedExperimentalContrast = Self.parseBoolean(trimmed) == true
+        } else if lowerElement == "lumibase:experimentalshadows" {
+            parsedExperimentalShadows = Self.parseBoolean(trimmed) == true
+        } else if lowerElement == "lumibase:experimentalwhites" {
+            parsedExperimentalWhites = Self.parseBoolean(trimmed) == true
+        } else if lowerElement == "lumibase:experimentaldehaze" {
+            parsedExperimentalDehaze = Self.parseBoolean(trimmed) == true
+        } else if lowerElement == "lumibase:experimentaltexture" {
+            parsedExperimentalTexture = Self.parseBoolean(trimmed) == true
+        } else if lowerElement == "lumibase:lensdistortion" {
+            parsedLensDistortion = Int(trimmed)
+        } else if lowerElement == "lumibase:lenspurpledefringe" {
+            parsedLensPurpleDefringe = Int(trimmed)
+        } else if lowerElement == "lumibase:lensgreendefringe" {
+            parsedLensGreenDefringe = Int(trimmed)
+        } else if lowerElement == "lumibase:lensvignette" {
+            parsedLensVignette = Int(trimmed)
         } else if lowerElement.hasSuffix("hascrop") {
             parsedHasCrop = (trimmed.lowercased() == "true" || trimmed == "1")
         } else if lowerElement.hasSuffix("croptop") {
@@ -315,6 +369,18 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
         var saturation: Int?
         var clarity: Int?
         var texture: Int?
+        func own(_ name: String) -> String? {
+            matchFirst(pattern: "(?:lumibase:)?\(name)=\"([^\"]+)\"", in: content)
+        }
+        let experimentalContrast = own("ExperimentalContrast").flatMap(Self.parseBoolean) == true
+        let experimentalShadows = own("ExperimentalShadows").flatMap(Self.parseBoolean) == true
+        let experimentalWhites = own("ExperimentalWhites").flatMap(Self.parseBoolean) == true
+        let experimentalDehaze = own("ExperimentalDehaze").flatMap(Self.parseBoolean) == true
+        let experimentalTexture = own("ExperimentalTexture").flatMap(Self.parseBoolean) == true
+        let lensDistortion = own("LensDistortion").flatMap(Int.init)
+        let lensPurpleDefringe = own("LensPurpleDefringe").flatMap(Int.init)
+        let lensGreenDefringe = own("LensGreenDefringe").flatMap(Int.init)
+        let lensVignette = own("LensVignette").flatMap(Int.init)
         var cameraProfile: String?
         var hasCrop = false
         
@@ -450,6 +516,15 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
             saturation: saturation,
             clarity2012: clarity,
             texture: texture,
+            experimentalContrast: experimentalContrast,
+            experimentalShadows: experimentalShadows,
+            experimentalWhites: experimentalWhites,
+            experimentalDehaze: experimentalDehaze,
+            experimentalTexture: experimentalTexture,
+            lensDistortion: lensDistortion,
+            lensPurpleDefringe: lensPurpleDefringe,
+            lensGreenDefringe: lensGreenDefringe,
+            lensVignette: lensVignette,
             hasCrop: hasCrop,
             cropTop: cropTop,
             cropLeft: cropLeft,

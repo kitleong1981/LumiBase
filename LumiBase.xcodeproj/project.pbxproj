@@ -40,6 +40,8 @@
 		A10000012C0000010000001F /* DCPProfileManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C0000010000001F /* DCPProfileManager.swift */; };
 		A10000012C00000100000027 /* DCPProfileParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000027 /* DCPProfileParser.swift */; };
 		A10000012C00000100000020 /* AdobeColorPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000020 /* AdobeColorPipeline.swift */; };
+		A10000012C00000100000031 /* ExperimentalToneService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000031 /* ExperimentalToneService.swift */; };
+		A10000012C00000100000032 /* ManualLensCorrectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000032 /* ManualLensCorrectionService.swift */; };
 		A10000012C00000100000021 /* PhotoExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000021 /* PhotoExportService.swift */; };
 		A10000012C00000100000022 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000022 /* AppIcon.icns */; };
 		A10000012C00000100000023 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000023 /* Assets.xcassets */; };
@@ -92,6 +94,8 @@
 		A10000022C0000010000001F /* DCPProfileManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DCPProfileManager.swift; sourceTree = "<group>"; };
 		A10000022C00000100000027 /* DCPProfileParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DCPProfileParser.swift; sourceTree = "<group>"; };
 		A10000022C00000100000020 /* AdobeColorPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdobeColorPipeline.swift; sourceTree = "<group>"; };
+		A10000022C00000100000031 /* ExperimentalToneService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExperimentalToneService.swift; sourceTree = "<group>"; };
+		A10000022C00000100000032 /* ManualLensCorrectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualLensCorrectionService.swift; sourceTree = "<group>"; };
 		A10000022C00000100000021 /* PhotoExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoExportService.swift; sourceTree = "<group>"; };
 		A10000022C00000100000022 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		A10000022C00000100000023 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -195,6 +199,8 @@
 				A10000022C0000010000001F /* DCPProfileManager.swift */,
 				A10000022C00000100000027 /* DCPProfileParser.swift */,
 				A10000022C00000100000020 /* AdobeColorPipeline.swift */,
+				A10000022C00000100000031 /* ExperimentalToneService.swift */,
+				A10000022C00000100000032 /* ManualLensCorrectionService.swift */,
 				A10000022C00000100000021 /* PhotoExportService.swift */,
 				A10000022C00000100000026 /* LiveDevelopPreviewEngine.swift */,
 				A10000022C00000100000028 /* PreviewPreloader.swift */,
@@ -406,6 +412,8 @@
 				A10000012C0000010000001F /* DCPProfileManager.swift in Sources */,
 				A10000012C00000100000027 /* DCPProfileParser.swift in Sources */,
 				A10000012C00000100000020 /* AdobeColorPipeline.swift in Sources */,
+				A10000012C00000100000031 /* ExperimentalToneService.swift in Sources */,
+				A10000012C00000100000032 /* ManualLensCorrectionService.swift in Sources */,
 				A10000012C00000100000021 /* PhotoExportService.swift in Sources */,
 				A10000012C00000100000024 /* DevelopBasicPanelView.swift in Sources */,
 				A10000012C00000100000025 /* LightroomSlider.swift in Sources */,
@@ -510,10 +518,11 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleIconFile = AppIcon;
+				INFOPLIST_KEY_CFBundleDisplayName = "LumiBase Experimental";
 				CODE_SIGN_ENTITLEMENTS = LumiBase/Resources/LumiBase.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1.10.1;
+				CURRENT_PROJECT_VERSION = 1.12.0;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -523,8 +532,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.10.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lumibase.LumiBase.Inspection.ROI;
+				MARKETING_VERSION = 1.12.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lumibase.LumiBase.ExperimentalToneLens1120;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -536,10 +545,11 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleIconFile = AppIcon;
+				INFOPLIST_KEY_CFBundleDisplayName = "LumiBase Experimental";
 				CODE_SIGN_ENTITLEMENTS = LumiBase/Resources/LumiBase.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1.10.1;
+				CURRENT_PROJECT_VERSION = 1.12.0;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -549,8 +559,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.10.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lumibase.LumiBase.Inspection.ROI;
+				MARKETING_VERSION = 1.12.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lumibase.LumiBase.ExperimentalToneLens1120;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

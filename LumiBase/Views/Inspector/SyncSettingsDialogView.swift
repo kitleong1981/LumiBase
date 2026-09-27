@@ -151,7 +151,10 @@ public struct SyncSettingsDialogView: View {
                     
                     // Geometry / Crop
                     categoryBox(title: "GEOMETRY") {
-                        checkboxRow(title: "Crop", isOn: $options.crop)
+                        VStack(alignment: .leading, spacing: 6) {
+                            checkboxRow(title: "Crop", isOn: $options.crop)
+                            checkboxRow(title: "Manual Lens Corrections", isOn: $options.lensCorrections)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity)

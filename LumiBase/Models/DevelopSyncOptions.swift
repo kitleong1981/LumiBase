@@ -26,6 +26,7 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
     
     // Geometry
     public var crop: Bool
+    public var lensCorrections: Bool
     
     public init(
         whiteBalance: Bool = true,
@@ -42,7 +43,8 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
         saturation: Bool = true,
         cameraProfile: Bool = true,
         treatment: Bool = true,
-        crop: Bool = false // In Lightroom Classic, crop is unchecked by default
+        crop: Bool = false, // In Lightroom Classic, crop is unchecked by default
+        lensCorrections: Bool = false
     ) {
         self.whiteBalance = whiteBalance
         self.exposure = exposure
@@ -59,6 +61,7 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
         self.cameraProfile = cameraProfile
         self.treatment = treatment
         self.crop = crop
+        self.lensCorrections = lensCorrections
     }
     
     // MARK: - Group Helpers
@@ -98,7 +101,7 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
     
     public var hasAnySelected: Bool {
         whiteBalance || exposure || contrast || highlights || shadows || whites || blacks ||
-        texture || clarity || dehaze || vibrance || saturation || cameraProfile || treatment || crop
+        texture || clarity || dehaze || vibrance || saturation || cameraProfile || treatment || crop || lensCorrections
     }
     
     public mutating func checkAll(includeCrop: Bool = false) {
@@ -108,6 +111,7 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
         cameraProfile = true
         treatment = true
         crop = includeCrop
+        lensCorrections = false
     }
     
     public mutating func checkNone() {
@@ -117,27 +121,30 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
         cameraProfile = false
         treatment = false
         crop = false
+        lensCorrections = false
     }
     
     /// Preselects only the options that have actual non-default / non-nil adjustments in the source metadata
     public mutating func checkModified(from source: XMPMetadata) {
         whiteBalance = (source.temperature != nil && source.temperature != 0) || (source.tint != nil && source.tint != 0)
         exposure = (source.exposure2012 != nil && source.exposure2012 != 0.0)
-        contrast = (source.contrast2012 != nil && source.contrast2012 != 0)
+        contrast = (source.contrast2012 != nil && source.contrast2012 != 0) || source.experimentalContrast
         highlights = (source.highlights2012 != nil && source.highlights2012 != 0) || source.advancedRAWHighlightRecovery == true
-        shadows = (source.shadows2012 != nil && source.shadows2012 != 0)
-        whites = (source.whites2012 != nil && source.whites2012 != 0)
+        shadows = (source.shadows2012 != nil && source.shadows2012 != 0) || source.experimentalShadows
+        whites = (source.whites2012 != nil && source.whites2012 != 0) || source.experimentalWhites
         blacks = (source.blacks2012 != nil && source.blacks2012 != 0)
         
-        texture = (source.texture != nil && source.texture != 0)
+        texture = (source.texture != nil && source.texture != 0) || source.experimentalTexture
         clarity = (source.clarity2012 != nil && source.clarity2012 != 0)
-        dehaze = (source.dehaze != nil && source.dehaze != 0)
+        dehaze = (source.dehaze != nil && source.dehaze != 0) || source.experimentalDehaze
         vibrance = (source.vibrance != nil && source.vibrance != 0)
         saturation = (source.saturation != nil && source.saturation != 0)
         
         cameraProfile = (source.cameraProfile != nil)
         treatment = (source.convertToGrayscale != nil)
         crop = source.hasCrop
+        lensCorrections = source.lensDistortion != nil || source.lensPurpleDefringe != nil ||
+            source.lensGreenDefringe != nil || source.lensVignette != nil
     }
     
     // MARK: - Application Logic
@@ -154,6 +161,7 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
         }
         if contrast {
             target.contrast2012 = source.contrast2012
+            target.experimentalContrast = source.experimentalContrast
         }
         if highlights {
             target.highlights2012 = source.highlights2012
@@ -161,9 +169,11 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
         }
         if shadows {
             target.shadows2012 = source.shadows2012
+            target.experimentalShadows = source.experimentalShadows
         }
         if whites {
             target.whites2012 = source.whites2012
+            target.experimentalWhites = source.experimentalWhites
         }
         if blacks {
             target.blacks2012 = source.blacks2012
@@ -171,12 +181,14 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
         
         if texture {
             target.texture = source.texture
+            target.experimentalTexture = source.experimentalTexture
         }
         if clarity {
             target.clarity2012 = source.clarity2012
         }
         if dehaze {
             target.dehaze = source.dehaze
+            target.experimentalDehaze = source.experimentalDehaze
         }
         if vibrance {
             target.vibrance = source.vibrance
@@ -199,6 +211,12 @@ public struct DevelopSyncOptions: Codable, Equatable, Sendable {
             target.cropBottom = source.cropBottom
             target.cropRight = source.cropRight
             target.cropAngle = source.cropAngle
+        }
+        if lensCorrections {
+            target.lensDistortion = source.lensDistortion
+            target.lensPurpleDefringe = source.lensPurpleDefringe
+            target.lensGreenDefringe = source.lensGreenDefringe
+            target.lensVignette = source.lensVignette
         }
     }
     
