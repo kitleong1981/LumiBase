@@ -144,6 +144,18 @@ public struct LightroomSlider: View {
         self.onEditingChanged = onEditingChanged
         self.onReset = onReset
     }
+
+    /// Key adjustments are absolute display units, even for fractional sliders
+    /// such as Exposure. A partly typed valid draft takes precedence over the
+    /// previously committed setting; invalid text falls back to the setting.
+    static func nudgedValue(draft: String, current: Double, range: ClosedRange<Double>, up: Bool, shift: Bool) -> Double {
+        let cleaned = draft.replacingOccurrences(of: "+", with: "")
+            .replacingOccurrences(of: "K", with: "").replacingOccurrences(of: "k", with: "")
+            .replacingOccurrences(of: ",", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = Double(cleaned).flatMap { $0.isFinite ? $0 : nil } ?? current
+        let delta = (up ? 1.0 : -1.0) * (shift ? 10.0 : 1.0)
+        return min(max(base + delta, range.lowerBound), range.upperBound)
+    }
     
     public var body: some View {
         HStack(spacing: 8) {
@@ -232,7 +244,7 @@ public struct LightroomSlider: View {
                         }
                         .gesture(TapGesture(count: 2).onEnded { resetToDefault() }
                             .exclusively(before: TapGesture().onEnded { startEditing() }))
-                        .help("Double-click to reset; click to edit (Tab for next, Return to apply)")
+                        .help("Double-click to reset; click to edit (↑/↓ ±1, Shift+↑/↓ ±10, Tab next, Return apply)")
                 }
             }
             .frame(width: 48, height: 18, alignment: .trailing)
@@ -294,6 +306,15 @@ public struct LightroomSlider: View {
                 exitFocus()
             }
             .onKeyPress { press in
+                if press.key == .upArrow || press.key == .downArrow {
+                    guard !press.modifiers.contains(.command) && !press.modifiers.contains(.control)
+                        && !press.modifiers.contains(.option) else { return .ignored }
+                    let next = Self.nudgedValue(draft: textInput, current: value, range: range,
+                                                 up: press.key == .upArrow, shift: press.modifiers.contains(.shift))
+                    textInput = (range.upperBound <= 5 || step < 1) ? String(format: "%.2f", next) : String(format: "%.0f", next)
+                    if value != next { value = next; onEditingChanged?(false) }
+                    return .handled
+                }
                 if press.key == .tab {
                     commitTextInput()
                     if press.modifiers.contains(.shift) {

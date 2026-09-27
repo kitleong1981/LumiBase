@@ -201,6 +201,7 @@ public struct MainLayoutView: View {
             Button("Move to Trash", role: .destructive) {
                 appState.confirmDeletePendingPhotos()
             }
+            .keyboardShortcut(.defaultAction)
         } message: {
             Text(deleteAlertMessage)
         }

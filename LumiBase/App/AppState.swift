@@ -180,6 +180,8 @@ public final class AppState: ObservableObject {
     public func handleGlobalKeyEvent(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let keyCode = event.keyCode
+        // The confirmation alert owns Return/Escape and its own key equivalents.
+        if showDeleteConfirmation { return false }
         
         // Only ignore keyboard shortcuts if user is currently typing in an active text input field
         if let responder = NSApp.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
@@ -201,6 +203,14 @@ public final class AppState: ObservableObject {
             return false
         }
         
+        // macOS Fn+Delete emits forward delete (117), usually with .function.
+        // Keep it out of editable text and do not accept other modifier chords.
+        if keyCode == 117 && !flags.contains(.command) && !flags.contains(.control)
+            && !flags.contains(.option) && !flags.contains(.shift) {
+            requestDeleteSelectedPhotos()
+            return true
+        }
+
         // 0. Modifier Key Combinations (Export, Sync, Copy/Paste Develop Settings)
         if flags.contains([.command, .shift, .option]) {
             let lower = (event.charactersIgnoringModifiers ?? "").lowercased()

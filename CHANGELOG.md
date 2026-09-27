@@ -5,6 +5,11 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - Keyboard workflow improvements
+
+- Fn+Delete opens the existing Move to Trash confirmation, where Return confirms via the alert's default action; the global grid/loupe shortcuts yield while the alert is shown. Nothing is deleted without confirmation.
+- Focused Basic-panel numeric inputs use Up/Down to change the current draft by ±1 and Shift+Up/Down by ±10, clamped to the slider's range. Exposure uses the same numeric ±1/±10 increments (EV) as requested; Tab, Return, Escape and native text editing remain available.
+
 ## [1.9.1] - Large-batch Develop Sync refresh fix
 
 - Apply a multi-photo Sync as one catalog publication rather than one SwiftUI update per target. Preserve the source selection and write changed target sidecars only.
