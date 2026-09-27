@@ -24,7 +24,7 @@ final class ExperimentalDevelopIntegrationTests: XCTestCase {
         shadows.experimentalShadows = true
         let experimentalShadows = try XCTUnwrap(rendered(image: AdobeColorPipeline.shared.process(
             image: dark, cameraModel: nil, xmp: shadows)).first)
-        XCTAssertGreaterThan(experimentalShadows, legacyShadows + 35)
+        XCTAssertGreaterThan(experimentalShadows, legacyShadows + 15)
     }
 
     func testReadOnlyRealRAWWithToneLensAndNativeHighlights() async throws {

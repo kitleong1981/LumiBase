@@ -5,6 +5,14 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.2] - Restore shadow tone order and white detail in isolated experiments
+
+- Fix experimental Shadows' nonmonotone mapping: +100 in v1.12.1 reversed some midtones. Use a weaker monotone curve whose minimum luminance slope stays above 0.62 in measured linear-RGB ramp tests. Preserve the previously accepted experimental Contrast formula and legacy Texture behavior.
+- Redistribute negative experimental Whites over a wider tonal shoulder, so -100 preserves more separation between nearby bright values than v1.12.1 without simply brightening the same -90 slider relative to legacy.
+- Add a graded floating-point synthetic ramp regression and an opt-in, read-only pairwise reference test for the two user-provided DxO DNGs against settings extracted from their Lightroom final JPEGs. Those JPEGs contain edited settings, not a zero-settings reference; older loose sidecars differ from the Lightroom finals. The files under `raw_debug` are never written by the test.
+- Make the existing solid-red histogram test accept AppKit's color-managed peak near bin 255 (observed 251), rather than requiring exactly bin 255; image-processing code is unchanged.
+- Dehaze, the RAW baseline/profile, and highlight recovery were **not** calibrated here. The two real photos still show visible differences, particularly in fire highlights and color; no Lightroom parity is claimed.
+
 ## [1.12.1] - Calibrate experimental Shadows, Whites and Dehaze
 
 - Increase the experimental Shadows lift in exposure space while retaining true black and reducing the effect above the shadow range. This is an A/B test calibration, not a promise of Lightroom EV equivalence on every RAW.

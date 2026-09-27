@@ -58,20 +58,48 @@ final class ExperimentalToneServiceTests: XCTestCase {
         XCTAssertLessThan(sample(ExperimentalToneService.contrast(bright, amount: -80))[0], sample(bright)[0])
     }
 
-    func testPositiveShadowsAddsRoughlyAnotherOneAndHalfStopsInDeepMidShadows() {
+    func testPositiveShadowsLiftWhilePreservingRelativeDetail() {
         let input = image(0.20, 0.12, 0.07)
         let old = sample(input)
         let lifted = sample(ExperimentalToneService.shadows(input, amount: 100))
-        XCTAssertGreaterThan(lifted[0] / old[0], 2.7, "Need meaningful shadow lift, not a few curve points")
+        XCTAssertGreaterThan(lifted[0] / old[0], 1.8, "Need meaningful shadow lift without tonal inversion")
         XCTAssertEqual(lifted[0] / lifted[1], old[0] / old[1], accuracy: 0.08)
         let black = image(0, 0, 0)
         XCTAssertEqual(sample(ExperimentalToneService.shadows(black, amount: 100))[0], 0, accuracy: 0.0001)
     }
 
+    func testShadowAndWhiteCurvesCannotReverseOrMergeAdjacentTones() {
+        let count = 256
+        let pixels: [Float] = (0..<count).flatMap { i -> [Float] in
+            let y = Float(i) / Float(count - 1)
+            return [y, y, y, 1]
+        }
+        let source = pixels.withUnsafeBufferPointer { ptr in
+            CIImage(bitmapData: Data(buffer: ptr), bytesPerRow: count * 16,
+                    size: CGSize(width: count, height: 1), format: .RGBAf, colorSpace: space)
+        }
+        for (name, op, amounts, minimumSlope) in [
+            ("shadows", ExperimentalToneService.shadows, [25, 50, 70, 100], Float(0.62)),
+            ("whites", ExperimentalToneService.whites, [-50, -90, -100], Float(0.60))
+        ] as [(String, (CIImage, Int) -> CIImage, [Int], Float)] {
+            for amount in amounts {
+                var result = [Float](repeating: 0, count: pixels.count)
+                context.render(op(source, amount), toBitmap: &result, rowBytes: count * 16,
+                               bounds: CGRect(x: 0, y: 0, width: count, height: 1),
+                               format: .RGBAf, colorSpace: space)
+                for i in 0..<(count - 1) {
+                    let slope = (result[(i + 1) * 4] - result[i * 4]) * Float(count - 1)
+                    XCTAssertGreaterThanOrEqual(slope, minimumSlope,
+                        "\(name) \(amount) reversed/merged neighboring tones near \(i)/255")
+                }
+            }
+        }
+    }
+
     func testNegativeWhitesDarkensBrightDetailWithoutRaisingIt() {
         let input = image(0.8, 0.74, 0.68)
         let after = sample(ExperimentalToneService.whites(input, amount: -90))
-        XCTAssertLessThan(after[0], 0.70, "Whites -90 should compress the upper tone range perceptibly")
+        XCTAssertLessThan(after[0], 0.74, "Whites -90 should compress the upper tone range but retain detail")
         XCTAssertEqual(after[0] / after[1], 0.8 / 0.74, accuracy: 0.06)
         let shadow = image(0.08, 0.07, 0.06)
         XCTAssertEqual(sample(ExperimentalToneService.whites(shadow, amount: -90))[0], 0.08, accuracy: 0.01)

@@ -16,16 +16,22 @@ public enum ExperimentalToneService {
                 // Soft S curve, with the pivot at middle gray.
                 delta = a * 0.8 * (t - 0.4) * t * (1.0 - t);
             } else if (mode < 1.5) {
-                // Exposure-domain lift: at +100 a mid-shadow gains ~1.5-1.8 EV.
-                // Fade at true black and in mid/highlights to avoid a gray black floor.
-                mask = (1.0 - smoothstep(0.05, 0.62, t)) * smoothstep(0.0, 0.025, t);
-                float ev = a * 1.85 * mask;
-                delta = t * (exp2(ev) - 1.0);
+                // Monotone shadow shoulder. The previous per-pixel EV mask
+                // folded around middle gray, reversing nearby tones.
+                // Its polynomial's worst-case slope stays >= 0.65 at +100.
+                float shoulder = t * pow(1.0 - t, 3.0);
+                delta = (a >= 0.0 ? 1.4 : 0.65) * a * shoulder;
             } else if (mode < 2.5) {
-                // White range shoulder; stronger negative compression, but a
-                // smooth taper keeps the displayed specular endpoint anchored.
-                mask = smoothstep(0.38, 0.84, t);
-                delta = a * 0.30 * mask * sqrt(max(1.0 - t, 0.0));
+                // Spread negative white compression across the upper tones:
+                // retain its useful darkening but avoid a flat middle shoulder.
+                // At -100, its narrowest slope is >0.66 (previously ~0.51).
+                if (a < 0.0) {
+                    mask = smoothstep(0.25, 0.95, t);
+                    delta = a * 0.28 * mask * sqrt(max(1.0 - t, 0.0));
+                } else {
+                    mask = smoothstep(0.32, 0.88, t);
+                    delta = a * 0.22 * mask * (1.0 - t);
+                }
             }
             float target = clamp(y + delta, 0.0, 1.0);
             float ratio = clamp(target / max(y, 0.00001), 0.0, 4.0);

@@ -1,3 +1,11 @@
+# LumiBase 1.12.2 — 實際 RAW 對照後的保細節試驗
+
+- 這版只修改 **實驗 Shadows、負值 Whites**；已接受的新版 Contrast 公式未變，Texture 建議使用舊版（將實驗開關關閉）。
+- Shadows 修正 1.12.1 會讓中間亮度順序倒轉的 bug，減少極端提亮；Whites 在保持負值壓暗效果的同時，降低附近亮度被壓成一片的風險。
+- **Dehaze 仍沿用 1.12.1 的未驗收近似**，負值尚無可比對的 LR 輸出，建議暫時關閉實驗 Dehaze。DxO DNG 的「Advanced RAW Highlight Recovery」在這兩張參考照片的全圖輸出較暗，亦請暫時不要啟用。
+- 真實對照以 `O9266983-DXO6` 和 `O9267000-DXO6` 的 DNG 與其 Lightroom final JPEG 內嵌 XMP 為準。外置 sidecar 是不同編輯狀態，不要拿來當 final。這兩張 JPEG 都不是全 0 的 LR 基底；要校正 RAW 預設色彩／profile，仍需要同一張的 LR 全 0 匯出。
+- 仍請用照片**副本**做逐項 A/B，並在 100% 檢查人像暗衣服、亮部細節及烤架火焰。新版不保證與 LR 完全一致；不要同時用不同版本寫入同一張照片的 XMP。
+
 # LumiBase 1.12.1 — 重新校準 Shadows／Whites／Dehaze
 
 這是接續 1.12.0 的獨立測試版。根據第一次實測：**Contrast 演算法保持原樣；Texture 舊版較合適時，請將 Texture 的 A/B 開關關掉**。Whites 負值現在應更明顯壓暗亮部；Shadows 正值使用較強的暗部曝光補償；Dehaze 負值新增中性霧層與褪色效果，正值加強有界的局部去霧。
