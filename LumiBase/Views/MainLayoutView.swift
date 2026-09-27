@@ -201,8 +201,17 @@ public struct MainLayoutView: View {
             Button("Move to Trash", role: .destructive) {
                 appState.confirmDeletePendingPhotos()
             }
+            .keyboardShortcut(.defaultAction)
         } message: {
             Text(deleteAlertMessage)
+        }
+        .alert("XMP not saved", isPresented: Binding(
+            get: { appState.xmpSaveError != nil },
+            set: { if !$0 { appState.xmpSaveError = nil } }
+        )) {
+            Button("OK", role: .cancel) { appState.xmpSaveError = nil }
+        } message: {
+            Text(appState.xmpSaveError ?? "The setting was not changed.")
         }
     }
     

@@ -145,7 +145,7 @@ public final class PhotoExportService: @unchecked Sendable {
         
         // 2. Apply Adobe PV2012 Color Pipeline (Exposure, WB, Highlights, Shadows, Contrast, Saturation, Clarity)
         let processedCI: CIImage
-        if NativeHighlightsService.isEnabled, exportBaseHolder != nil, (asset.xmp.highlights2012 ?? 0) < 0 {
+        if NativeHighlightsService.isAdvancedEnabled(for: asset.xmp), exportBaseHolder != nil, (asset.xmp.highlights2012 ?? 0) < 0 {
             guard let recipe = sourceRecipe else {
                 throw ExportError.failedToRenderImage("Highlights require a current source and off-main render; preparation was cancelled or failed")
             }
@@ -178,7 +178,7 @@ public final class PhotoExportService: @unchecked Sendable {
         
         // 3. Render to high-fidelity CGImage in sRGB color space
         guard !Task.isCancelled else { throw ExportError.cancelled }
-        let renderContext = NativeHighlightsService.isEnabled && exportBaseHolder != nil && (asset.xmp.highlights2012 ?? 0) < 0 ? NativeHighlightsService.shared.renderContext : ciContext
+        let renderContext = NativeHighlightsService.isAdvancedEnabled(for: asset.xmp) && exportBaseHolder != nil && (asset.xmp.highlights2012 ?? 0) < 0 ? NativeHighlightsService.shared.renderContext : ciContext
         guard let cgImage = renderContext.createCGImage(
             processedCI,
             from: renderExtent,
