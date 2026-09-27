@@ -39,6 +39,7 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
     private var parsedTint: Int?
     private var parsedContrast: Int?
     private var parsedHighlights: Int?
+    private var parsedAdvancedRAWHighlightRecovery: Bool?
     private var parsedShadows: Int?
     private var parsedWhites: Int?
     private var parsedBlacks: Int?
@@ -84,6 +85,7 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
                 tint: parsedTint,
                 contrast2012: parsedContrast,
                 highlights2012: parsedHighlights,
+                advancedRAWHighlightRecovery: parsedAdvancedRAWHighlightRecovery,
                 shadows2012: parsedShadows,
                 whites2012: parsedWhites,
                 blacks2012: parsedBlacks,
@@ -144,6 +146,8 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
                 parsedContrast = Int(val)
             } else if key.hasSuffix("highlights2012") {
                 parsedHighlights = Int(val)
+            } else if key == "lumibase:advancedrawhighlightrecovery" {
+                parsedAdvancedRAWHighlightRecovery = Self.parseBoolean(val)
             } else if key.hasSuffix("shadows2012") {
                 parsedShadows = Int(val)
             } else if key.hasSuffix("whites2012") {
@@ -218,6 +222,8 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
             parsedTint = Int(trimmed)
         } else if lowerElement.hasSuffix("contrast2012") {
             parsedContrast = Int(trimmed)
+        } else if lowerElement == "lumibase:advancedrawhighlightrecovery" {
+            parsedAdvancedRAWHighlightRecovery = Self.parseBoolean(trimmed)
         } else if lowerElement.hasSuffix("hascrop") {
             parsedHasCrop = (trimmed.lowercased() == "true" || trimmed == "1")
         } else if lowerElement.hasSuffix("croptop") {
@@ -278,6 +284,14 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
         return .unflagged
     }
     
+    private static func parseBoolean(_ value: String) -> Bool? {
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "true", "1": return true
+        case "false", "0": return false
+        default: return nil
+        }
+    }
+
     // MARK: - Regex Fallback
     
     private func parseWithStringMatching(_ content: String) -> XMPMetadata {
@@ -292,6 +306,7 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
         var tint: Int?
         var contrast: Int?
         var highlights: Int?
+        var advancedRAWHighlightRecovery: Bool?
         var shadows: Int?
         var whites: Int?
         var blacks: Int?
@@ -333,6 +348,9 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
         
         if let hlMatch = matchFirst(pattern: #"Highlights2012="([+-]?\d+)"#, in: content) {
             highlights = Int(hlMatch)
+        }
+        if let recovery = matchFirst(pattern: #"lumibase:AdvancedRAWHighlightRecovery="(true|false|1|0)""#, in: content) {
+            advancedRAWHighlightRecovery = Self.parseBoolean(recovery)
         }
         
         if let shMatch = matchFirst(pattern: #"Shadows2012="([+-]?\d+)"#, in: content) {
@@ -423,6 +441,7 @@ public final class XMPParser: NSObject, XMLParserDelegate, @unchecked Sendable {
             tint: tint,
             contrast2012: contrast,
             highlights2012: highlights,
+            advancedRAWHighlightRecovery: advancedRAWHighlightRecovery,
             shadows2012: shadows,
             whites2012: whites,
             blacks2012: blacks,

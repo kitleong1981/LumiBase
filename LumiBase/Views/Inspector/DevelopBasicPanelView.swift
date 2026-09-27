@@ -441,11 +441,14 @@ public struct DevelopBasicPanelView: View {
                 )
                 
                 // Advanced Highlight Recovery (Experimental) Toggle
-                Toggle("Advanced RAW Highlight Recovery (Experimental)", isOn: $appState.isNativeHighlightsEnabled)
+                Toggle("Advanced RAW Highlight Recovery (Experimental)", isOn: Binding(
+                    get: { appState.advancedRAWHighlightRecovery(for: asset.id) },
+                    set: { appState.setAdvancedRAWHighlightRecovery($0, for: asset.id) }
+                ))
                     .toggleStyle(.checkbox)
                     .font(.system(size: 11))
-                    .foregroundColor(appState.isNativeHighlightsEnabled ? LightroomTheme.accentYellow : LightroomTheme.textSecondary)
-                    .help("Toggle Advanced RAW Highlight Recovery")
+                    .foregroundColor(appState.advancedRAWHighlightRecovery(for: asset.id) ? LightroomTheme.accentYellow : LightroomTheme.textSecondary)
+                    .help("Saved for this photo in its XMP sidecar (LumiBase-specific)")
                     .padding(.top, 4)
                     .padding(.bottom, 2)
             }

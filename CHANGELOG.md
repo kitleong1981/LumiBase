@@ -5,6 +5,17 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.1] - Persist Advanced RAW Highlight Recovery per photo
+
+- Save the Advanced RAW Highlight Recovery checkbox immediately as `lumibase:AdvancedRAWHighlightRecovery` in each photo's XMP sidecar; parse both true and false after restarting or moving to a separately identified preview app. A failed atomic write leaves the checkbox unchanged and shows an error. Explicit photo settings override the legacy app-wide preference; old sidecars without this property retain their previous preference fallback until the checkbox is changed.
+- Keep RAW preview, ROI cache identity and JPEG export on the same per-photo policy. Copy the policy with the Highlights option in Sync Settings, while a direct checkbox click does not Auto Sync to other selected photos.
+- The preceding versions did not record the per-photo selection, so old on/off choices cannot be reconstructed automatically; revisit and toggle affected photos once to save them.
+
+## [1.10.0] - Keyboard workflow improvements
+
+- Fn+Delete opens the existing Move to Trash confirmation, where Return confirms via the alert's default action; the global grid/loupe shortcuts yield while the alert is shown. Nothing is deleted without confirmation.
+- Focused Basic-panel numeric inputs use Up/Down to change the current draft by ±1 and Shift+Up/Down by ±10, clamped to the slider's range. Exposure uses the same numeric ±1/±10 increments (EV) as requested; Tab, Return, Escape and native text editing remain available.
+
 ## [1.9.1] - Large-batch Develop Sync refresh fix
 
 - Apply a multi-photo Sync as one catalog publication rather than one SwiftUI update per target. Preserve the source selection and write changed target sidecars only.

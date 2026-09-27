@@ -72,8 +72,13 @@ final class NativeHighlightsService: @unchecked Sendable {
         .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!])
 
     static func strength(_ highlights: Int) -> Float { Float(-max(-100, min(0, highlights))) / 80 }
+    /// Explicit per-photo metadata wins. Legacy sidecars retain the former
+    /// app-level preference until a choice is saved for that photo.
+    static func isAdvancedEnabled(for xmp: XMPMetadata?) -> Bool {
+        xmp?.advancedRAWHighlightRecovery ?? isEnabled
+    }
     static func applies(holder: BaseImageHolder, xmp: XMPMetadata?) -> Bool {
-        isEnabled && holder.isRaw && holder.supportsNativeInspection && holder.highlightsSource != nil && (xmp?.highlights2012 ?? 0) < 0
+        isAdvancedEnabled(for: xmp) && holder.isRaw && holder.supportsNativeInspection && holder.highlightsSource != nil && (xmp?.highlights2012 ?? 0) < 0
     }
     func clear() {
         stateLock.lock()

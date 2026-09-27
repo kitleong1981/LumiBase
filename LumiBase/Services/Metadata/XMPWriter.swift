@@ -17,6 +17,9 @@ public final class XMPWriter: Sendable {
     public static func generateXMPXML(metadata: XMPMetadata, originalFilename: String? = nil) -> String {
         let rawFileNameAttr = originalFilename != nil ? " crs:RawFileName=\"\(escapeXML(originalFilename!))\"" : ""
         let ratingAttr = " xmp:Rating=\"\(metadata.rating)\""
+        let advancedAttr = metadata.advancedRAWHighlightRecovery.map {
+            " lumibase:AdvancedRAWHighlightRecovery=\"\($0 ? "true" : "false")\""
+        } ?? ""
         let labelAttr = metadata.colorLabel != .none ? " xmp:Label=\"\(metadata.colorLabel.rawValue)\"" : ""
         let flagAttr: String
         switch metadata.flag {
@@ -135,7 +138,8 @@ public final class XMPWriter: Sendable {
             xmlns:xmp="http://ns.adobe.com/xap/1.0/"
             xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/"
             xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
-            xmlns:dc="http://purl.org/dc/elements/1.1/"\(rawFileNameAttr)\(ratingAttr)\(labelAttr)\(flagAttr)\(developAttrs)>
+            xmlns:dc="http://purl.org/dc/elements/1.1/"
+            xmlns:lumibase="https://github.com/tedyeng/LumiBase/ns/1.0/"\(rawFileNameAttr)\(ratingAttr)\(labelAttr)\(flagAttr)\(advancedAttr)\(developAttrs)>
         \(keywordsXML.isEmpty ? "" : keywordsXML + "\n")\(titleXML.isEmpty ? "" : titleXML + "\n")\(captionXML.isEmpty ? "" : captionXML + "\n")  </rdf:Description>
          </rdf:RDF>
         </x:xmpmeta>

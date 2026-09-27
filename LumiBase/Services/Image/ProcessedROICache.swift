@@ -170,7 +170,7 @@ struct ProcessedROIRequest: @unchecked Sendable {
     static func settingsIdentity(_ xmp: XMPMetadata) -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         let data = (try? encoder.encode(xmp)) ?? Data("encoding-failed".utf8)
-        let policy = (xmp.highlights2012 ?? 0) < 0 && NativeHighlightsService.isEnabled ? "advanced" : "standard"
+        let policy = (xmp.highlights2012 ?? 0) < 0 && NativeHighlightsService.isAdvancedEnabled(for: xmp) ? "advanced" : "standard"
         return SHA256.hash(data: data + Data(policy.utf8)).map { String(format: "%02x", $0) }.joined()
     }
     static func orientedExtent(for asset: PhotoAsset) -> (CGRect, Int)? {

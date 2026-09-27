@@ -4,6 +4,71 @@ import SwiftUI
 @testable import LumiBase
 
 final class EditingInputTests: XCTestCase {
+    @MainActor func testHostedFocusedSliderReceivesArrowKeys() async throws {
+        _ = NSApplication.shared
+        final class Box { var value = 12.0 }
+        let box = Box()
+        let host = NSHostingView(rootView: LightroomSlider(title: "Whites", value: Binding(
+            get: { box.value }, set: { box.value = $0 }), range: -100...100))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 350, height: 45),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        host.layoutSubtreeIfNeeded()
+        func descendants(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(descendants) }
+        let field = try XCTUnwrap(descendants(host).compactMap { $0 as? NSTextField }.first)
+        XCTAssertTrue(window.makeFirstResponder(field))
+        try await Task.sleep(nanoseconds: 150_000_000)
+        func arrow(_ code: UInt16, _ flags: NSEvent.ModifierFlags = []) throws {
+            let c = String(UnicodeScalar(code == 126 ? 0xF700 : 0xF701)!)
+            let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: flags, timestamp: 1, windowNumber: window.windowNumber,
+                context: nil, characters: c, charactersIgnoringModifiers: c,
+                isARepeat: false, keyCode: code))
+            window.sendEvent(event)
+        }
+        try arrow(126)
+        XCTAssertEqual(box.value, 13)
+        try arrow(125, [.shift])
+        XCTAssertEqual(box.value, 3)
+    }
+
+    func testFocusedNumericNudgeUsesDraftAndClampsRange() {
+        XCTAssertEqual(LightroomSlider.nudgedValue(draft: "-3", current: 0, range: -100...100, up: true, shift: false), -2)
+        XCTAssertEqual(LightroomSlider.nudgedValue(draft: "-3", current: 0, range: -100...100, up: false, shift: true), -13)
+        XCTAssertEqual(LightroomSlider.nudgedValue(draft: "99", current: 0, range: -100...100, up: true, shift: true), 100)
+        XCTAssertEqual(LightroomSlider.nudgedValue(draft: "bad", current: 0.5, range: -5...5, up: false, shift: false), -0.5)
+        XCTAssertEqual(LightroomSlider.nudgedValue(draft: "1.25", current: 0, range: -5...5, up: true, shift: false), 2.25)
+    }
+
+    @MainActor func testFnDeleteRequestsConfirmationAndReturnLeavesItForAlert() throws {
+        _ = NSApplication.shared
+        let root = inspectionTestScratchURL("keyboard-delete-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("keep.tiff")
+        try Data([1, 2, 3]).write(to: file)
+        let asset = PhotoAsset(fileURL: file)
+        let state = AppState(preloader: PreviewPreloader(observeMemoryPressure: false))
+        state.allAssets = [asset]
+        state.selectedAssetIDs = [asset.id]
+        state.primarySelectedAssetID = asset.id
+        state.viewMode = .grid
+        let forwardDelete = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [.function], timestamp: 1, windowNumber: 0, context: nil,
+            characters: String(UnicodeScalar(0xF728)!), charactersIgnoringModifiers: String(UnicodeScalar(0xF728)!),
+            isARepeat: false, keyCode: 117))
+        XCTAssertTrue(state.handleGlobalKeyEvent(forwardDelete))
+        XCTAssertTrue(state.showDeleteConfirmation)
+        XCTAssertEqual(state.pendingDeleteAssets.map(\.id), [asset.id])
+        let enter = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: [], timestamp: 2, windowNumber: 0, context: nil,
+            characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        XCTAssertFalse(state.handleGlobalKeyEvent(enter), "Return must reach the alert's default button")
+        XCTAssertEqual(state.viewMode, .grid, "Return must not navigate while deletion is pending")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "Only explicit confirmation may delete")
+    }
+
     @MainActor func testNativeTrackDoubleClickResetsWithoutDraggingAgain() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 30), styleMask: [.borderless], backing: .buffered, defer: false)
         let track = SliderTrackView(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
