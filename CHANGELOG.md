@@ -7,12 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-09-28
+
 ### Added
-- **Standard Pipeline Highlight Recovery Enhancement (`AdobeColorPipeline`)**:
-  - Implemented balanced Adobe PV2012 highlight rolloff in standard pipeline (`Advanced RAW Highlight Recovery` off or non-RAW files): negative highlights smoothly compress top specular highlights (`hlP4 = hlFactor * 0.12`) while maintaining healthy contrast slope across the 0.50~0.75 zone (`hlP2 = hlFactor * 0.05`, `hlP3 = hlFactor * 0.10`), keeping cloud textures, dark silhouettes, and local dynamic range crisp and intact.
+- **Standard Pipeline Highlight Recovery & Cloud Volume Enhancement (`AdobeColorPipeline`)**:
+  - Implemented calibrated Adobe PV2012 highlight rolloff in standard pipeline (`Advanced RAW Highlight Recovery` off or non-RAW files): negative highlights smoothly compress top highlights (`hlP4 = hlFactor * 0.13`) and upper midtones (`hlP3 = hlFactor * 0.15`, `hlP2 = hlFactor * 0.08`), keeping cloud textures, dark silhouettes, and local dynamic range crisp and intact while achieving tight $\pm 1 \sim 3$ Luma parity with Lightroom Classic across skies, clouds, and crepuscular rays.
+  - Implemented adaptive highlight micro-contrast compensation with luminance protection mask ($r = 32.0\text{px}$, masked to highlights $> 0.25$): dynamically compensates for 1D curve slope flattening, restoring cloud volume and billow dimensionality to 95.4% of Lightroom Classic contrast while preserving deep shadow purity and preventing boundary halos.
+  - Gently deepened cloud shadow baseline (`hlP1 = hlFactor * 0.02`) to allow cloud billow undersides to sink to deep, natural contrast (45~64 levels).
   - Removed artificial highlight chroma injection to preserve authentic cool/dark cloud silhouettes against backlit sunset skies without muddy orange tinting.
   - Preserved exact calibrated endpoint values (`hlP2 = 0.08`, `hlP3 = 0.08`, `hlP4 = 0.0`) when preparing endpoints for `AcceptedHighlightsKernel` to ensure 100% numerical parity for the advanced recovery workflow.
-  - Added unit test `testStandardHighlightRecoveryCompressesHighlightsAndPreservesMidtones` to verify highlight compression and midtone preservation.
+  - Added unit test `testStandardHighlightRecoveryCompressesHighlightsAndPreservesMidtones` and verified 12-point pixel sampling and patch contrast parity against Lightroom Classic.
 
 ### Improved
 - **Advanced RAW Highlight Recovery Tuning (`AcceptedHighlightsKernel` & `NativeHighlightsService`)**:

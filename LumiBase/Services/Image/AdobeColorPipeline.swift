@@ -129,11 +129,13 @@ public final class AdobeColorPipeline: Sendable {
         if hasToneEdits {
             // For RAW files with Advanced RAW Highlight Recovery enabled, preserve calibrated weights for AcceptedHighlightsKernel parity;
             // for standard pipeline (RAW without Advanced Recovery or non-RAW files), apply full PV2012 highlight rolloff.
+            let hlP1: Double
             let hlP2: Double
             let hlP3: Double
             let hlP4: Double
             
             if isAdvancedRaw {
+                hlP1 = 0.0
                 hlP2 = hlFactor * 0.08
                 hlP3 = hlFactor * 0.08
                 hlP4 = 0.0
@@ -141,10 +143,12 @@ public final class AdobeColorPipeline: Sendable {
                 if hlFactor < 0 {
                     // PV2012 negative highlights: smoothly roll off top specular highlights while
                     // preserving healthy contrast slope across 0.50~0.75 so cloud textures and silhouettes stay crisp.
-                    hlP2 = hlFactor * 0.05
-                    hlP3 = hlFactor * 0.10
-                    hlP4 = hlFactor * 0.12
+                    hlP1 = hlFactor * 0.02
+                    hlP2 = hlFactor * 0.08
+                    hlP3 = hlFactor * 0.15
+                    hlP4 = hlFactor * 0.13
                 } else {
+                    hlP1 = 0.0
                     hlP2 = hlFactor * 0.04
                     hlP3 = hlFactor * 0.14
                     hlP4 = 0.0
@@ -152,11 +156,11 @@ public final class AdobeColorPipeline: Sendable {
             }
 
             let p0Y = max(0.0, min(0.04, 0.0 + (bFactor * 0.01)))
-            let p1Y = max(0.12, min(0.35, 0.24 + (shFactor * 0.06) + (bFactor * 0.20)))
-            let p2Y = max(0.42, min(0.65, 0.50 + hlP2 + (shFactor * 0.03)))
+            let p1Y = max(0.12, min(0.35, 0.24 + hlP1 + (shFactor * 0.06) + (bFactor * 0.20)))
+            let p2Y = max(0.40, min(0.65, 0.50 + hlP2 + (shFactor * 0.03)))
             let p3Y = isAdvancedRaw
                 ? max(0.60, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
-                : max(0.58, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
+                : max(0.55, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
             let p4Y = isAdvancedRaw
                 ? max(0.85, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
                 : max(0.85, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
@@ -168,7 +172,40 @@ public final class AdobeColorPipeline: Sendable {
                 "inputPoint3": CIVector(x: 0.75, y: p3Y),
                 "inputPoint4": CIVector(x: 1.0, y: p4Y)
             ])
+            
+            // 5b. Highlight Micro-Contrast Compensation (PV2012 Cloud Volume & Edge Contrast)
+            // When highlights are pulled down (hlFactor < 0), the 1D tone curve slope flattens across 0.25~0.75,
+            // compressing cloud volume and texture. Inject adaptive micro-contrast in the mid-to-high luminance
+            // zone, masked away from shadows/silhouettes to preserve crisp cloud 3D depth matching Lightroom.
+            if !isAdvancedRaw && hlFactor < 0 {
+                let maskLuma = current.applyingFilter("CIColorMatrix", parameters: [
+                    "inputRVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0.0),
+                    "inputGVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0.0),
+                    "inputBVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0.0),
+                    "inputAVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0.0),
+                    "inputBiasVector": CIVector(x: 0.0, y: 0.0, z: 0.0, w: 0.0)
+                ]).applyingFilter("CIToneCurve", parameters: [
+                    "inputPoint0": CIVector(x: 0.0, y: 0.0),
+                    "inputPoint1": CIVector(x: 0.15, y: 0.0),
+                    "inputPoint2": CIVector(x: 0.30, y: 0.55),
+                    "inputPoint3": CIVector(x: 0.55, y: 1.0),
+                    "inputPoint4": CIVector(x: 1.0, y: 1.0)
+                ])
+                
+                let microContrastIntensity = min(0.85, abs(hlFactor) * 0.75)
+                let enhanced = current.applyingFilter("CIUnsharpMask", parameters: [
+                    kCIInputRadiusKey: 32.0,
+                    kCIInputIntensityKey: microContrastIntensity
+                ])
+                
+                current = current.applyingFilter("CIBlendWithMask", parameters: [
+                    kCIInputImageKey: enhanced,
+                    kCIInputBackgroundImageKey: current,
+                    kCIInputMaskImageKey: maskLuma
+                ])
+            }
         }
+
         
         // 7. Texture (Fine Detail: >0 Sharpen, <0 Skin Soften)
         if let texture = xmp.texture, texture != 0 {
