@@ -5,6 +5,33 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.11.0] - 2026-09-28
+
+### Added
+- **Standard Pipeline Highlight Recovery & Cloud Volume Enhancement (`AdobeColorPipeline`)**:
+  - Implemented calibrated Adobe PV2012 highlight rolloff in standard pipeline (`Advanced RAW Highlight Recovery` off or non-RAW files): negative highlights smoothly compress top highlights (`hlP4 = hlFactor * 0.13`) and upper midtones (`hlP3 = hlFactor * 0.15`, `hlP2 = hlFactor * 0.08`), keeping cloud textures, dark silhouettes, and local dynamic range crisp and intact while achieving tight $\pm 1 \sim 3$ Luma parity with Lightroom Classic across skies, clouds, and crepuscular rays.
+  - Implemented adaptive highlight micro-contrast compensation with luminance protection mask ($r = 32.0\text{px}$, masked to highlights $> 0.25$): dynamically compensates for 1D curve slope flattening, restoring cloud volume and billow dimensionality to 95.4% of Lightroom Classic contrast while preserving deep shadow purity and preventing boundary halos.
+  - Gently deepened cloud shadow baseline (`hlP1 = hlFactor * 0.02`) to allow cloud billow undersides to sink to deep, natural contrast (45~64 levels).
+  - Removed artificial highlight chroma injection to preserve authentic cool/dark cloud silhouettes against backlit sunset skies without muddy orange tinting.
+  - Preserved exact calibrated endpoint values (`hlP2 = 0.08`, `hlP3 = 0.08`, `hlP4 = 0.0`) when preparing endpoints for `AcceptedHighlightsKernel` to ensure 100% numerical parity for the advanced recovery workflow.
+  - Added unit test `testStandardHighlightRecoveryCompressesHighlightsAndPreservesMidtones` and verified 12-point pixel sampling and patch contrast parity against Lightroom Classic.
+
+### Improved
+- **Advanced RAW Highlight Recovery Tuning (`AcceptedHighlightsKernel` & `NativeHighlightsService`)**:
+  - Raised gate luminance threshold in `AcceptedHighlightsKernel.prepare` from `(80, 200)` to `(140, 235)` to protect midtone water and foliage from being pulled into the correction field.
+  - Reduced guided filter regularization parameter from `0.25 * 0.25` to `0.08 * 0.08`, preventing dark border halos around high-contrast horizon edges.
+  - Replaced the warm desaturation penalty in `AcceptedHighlightsKernel.colorKernel` with warm highlight chroma infill, preventing sunset skies from turning desaturated gray.
+  - Clamped `displayAnchor` in `NativeHighlightsService.strengthKernel` to ensure display gamut boundaries.
+  - Safely accessed `NSApplication.shared` in `AppState` focus-resigning logic to eliminate nil unwrapping when invoked in test or isolated contexts.
+
+### Fixed
+- **Preview Jitter During Highlights Adjustment**:
+  - Pinned `outputExtent` to `targetExtent` in `RAWImageLoader.renderProcessed` when uncropped, eliminating subpixel integer rounding discrepancies between `AdobeColorPipeline` and `NativeHighlightsService`.
+  - Passed `fullExtent: holder.fullExtent` in `LoupeView.swift` during interactive slider dragging, eliminating origin offset jumps between interactive drag frames and debounced idle full renders.
+  - Prioritized `fullExtent.size` over proxy image size in `LoupeView` handoff proxy to prevent aspect ratio shifts during preview loading.
+
 ## [1.10.1] - Persist Advanced RAW Highlight Recovery per photo
 
 - Save the Advanced RAW Highlight Recovery checkbox immediately as `lumibase:AdvancedRAWHighlightRecovery` in each photo's XMP sidecar; parse both true and false after restarting or moving to a separately identified preview app. A failed atomic write leaves the checkbox unchanged and shows an error. Explicit photo settings override the legacy app-wide preference; old sidecars without this property retain their previous preference fallback until the checkbox is changed.

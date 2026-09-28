@@ -440,8 +440,8 @@ public struct DevelopBasicPanelView: View {
                     onReset: { appState.updateDevelopSettings(for: asset.id, isDragging: false) { BasicSliderField.blacks.reset(in: &$0) } }
                 )
                 
-                // Advanced Highlight Recovery (Experimental) Toggle
-                Toggle("Advanced RAW Highlight Recovery (Experimental)", isOn: Binding(
+                // Advanced Highlight Recovery Toggle
+                Toggle("Advanced RAW Highlight Recovery", isOn: Binding(
                     get: { appState.advancedRAWHighlightRecovery(for: asset.id) },
                     set: { appState.setAdvancedRAWHighlightRecovery($0, for: asset.id) }
                 ))

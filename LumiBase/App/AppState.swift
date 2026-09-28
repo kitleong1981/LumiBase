@@ -49,9 +49,9 @@ public final class AppState: ObservableObject {
     @Published public var isRightInspectorVisible: Bool = true
     @Published public var isFilmstripVisible: Bool = true
     
-    // Native Highlights (Accepted-B) toggle - default false
+    // Native Highlights (Accepted-B) toggle - default true
     @Published public private(set) var highlightsRenderRevision: UInt64 = 0
-    @Published public var isNativeHighlightsEnabled: Bool = UserDefaults.standard.bool(forKey: "isNativeHighlightsEnabled") {
+    @Published public var isNativeHighlightsEnabled: Bool = (UserDefaults.standard.object(forKey: "isNativeHighlightsEnabled") as? Bool) ?? true {
         didSet {
             guard oldValue != isNativeHighlightsEnabled else { return }
             UserDefaults.standard.set(isNativeHighlightsEnabled, forKey: "isNativeHighlightsEnabled")
@@ -185,11 +185,11 @@ public final class AppState: ObservableObject {
         if showDeleteConfirmation { return false }
         
         // Only ignore keyboard shortcuts if user is currently typing in an active text input field
-        if let responder = NSApp.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
+        if let responder = NSApplication.shared.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
             // If user presses Escape while in a text input field, dismiss focus and consume event
             if keyCode == 53 { // Escape
                 DispatchQueue.main.async {
-                    NSApp.keyWindow?.makeFirstResponder(nil)
+                    NSApplication.shared.keyWindow?.makeFirstResponder(nil)
                 }
                 return true
             }
@@ -539,9 +539,9 @@ public final class AppState: ObservableObject {
     /// - Range (Shift + click): select contiguous range of assets between anchor and clicked asset
     public func selectAsset(_ asset: PhotoAsset, isToggle: Bool = false, isRange: Bool = false) {
         // Resign any active text input focus (like search bar) when user clicks to select photos
-        if let responder = NSApp.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
+        if let responder = NSApplication.shared.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
             DispatchQueue.main.async {
-                NSApp.keyWindow?.makeFirstResponder(nil)
+                NSApplication.shared.keyWindow?.makeFirstResponder(nil)
             }
         }
         
@@ -943,9 +943,9 @@ public final class AppState: ObservableObject {
     
     /// Toggles between Edit (Develop adjustments) and Crop & Straighten mode
     public func toggleCropMode() {
-        if let responder = NSApp.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
+        if let responder = NSApplication.shared.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
             DispatchQueue.main.async {
-                NSApp.keyWindow?.makeFirstResponder(nil)
+                NSApplication.shared.keyWindow?.makeFirstResponder(nil)
             }
         }
         if activeDevelopTool == .crop {

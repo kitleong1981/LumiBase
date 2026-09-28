@@ -551,7 +551,7 @@ public struct LoupeView: View {
                 }
                 let showingHandoffProxy = !visibleImageIsCurrent && selectedHandoff != nil
                 let img = showingHandoffProxy ? selectedHandoff?.image : presentation.image
-                let pixels = showingHandoffProxy ? (selectedHandoff?.sourceRect?.size ?? selectedHandoff?.image.size ?? visibleDisplay.pixels) : visibleDisplay.pixels
+                let pixels = showingHandoffProxy ? (selectedHandoff?.sourceRect?.size ?? (selectedHandoff?.fullExtent.isEmpty == false ? selectedHandoff?.fullExtent.size : nil) ?? selectedHandoff?.image.size ?? visibleDisplay.pixels) : visibleDisplay.pixels
                 let sourceRect = showingHandoffProxy ? selectedHandoff?.sourceRect : visibleDisplay.sourceRect
                 let fullExtent = showingHandoffProxy ? (selectedHandoff?.fullExtent ?? .zero) : visibleDisplay.fullExtent
                 let layout = InspectionFrameLayout.make(pixels: pixels, sourceRect: sourceRect, fullExtent: fullExtent, zoomed: inspection.zoomed, viewport: viewportSize, backing: backingScale)
@@ -1255,7 +1255,8 @@ public struct LoupeView: View {
                     InspectionReadyFrameStore.shared.publishFullPreview(asset: asset, xmp: renderXMP,
                         image: result, fullExtent: holder.fullExtent)
                     display.accept(result, assetID: targetID, filename: asset.filename, pixels: holder.fullExtent.size,
-                        native: false, ticket: displayTicket, developSettingsIdentity: renderSettingsIdentity)
+                        native: false, ticket: displayTicket, fullExtent: holder.fullExtent,
+                        developSettingsIdentity: renderSettingsIdentity)
                 }
             }
         }

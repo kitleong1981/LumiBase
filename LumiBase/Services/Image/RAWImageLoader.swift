@@ -264,9 +264,11 @@ public final class RAWImageLoader: @unchecked Sendable {
         if let sourceRect {
             outputExtent = sourceRect.intersection(targetExtent)
             guard !outputExtent.isEmpty else { return nil }
-        } else {
+        } else if xmp?.hasCrop == true {
             let pExtent = processed.extent
             outputExtent = (pExtent.isInfinite || pExtent.isEmpty) ? targetExtent : pExtent
+        } else {
+            outputExtent = targetExtent
         }
         let renderContext = NativeHighlightsService.applies(holder: baseHolder, xmp: xmp) ? NativeHighlightsService.shared.renderContext : ciContext
         guard isCurrent() else { return nil }
