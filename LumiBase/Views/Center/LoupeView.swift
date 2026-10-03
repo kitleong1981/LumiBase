@@ -535,6 +535,12 @@ public struct LoupeView: View {
     private var is100PercentZoom: Bool { inspection.zoomed }
     @State private var showInfoOverlay: Bool = true
     
+    // Before / After Comparison Render Cache
+    @State private var beforeImage: NSImage?
+    @State private var beforeAssetID: String?
+    @State private var beforeIdentity: String?
+    @State private var beforeRenderTask: Task<Void, Never>?
+    
     public var body: some View {
         VStack(spacing: 0) {
             // Main Viewer Area
@@ -565,12 +571,200 @@ public struct LoupeView: View {
                     
                     if let img = img {
                         let currentAngle = (appState.activeDevelopTool == .crop) ? (appState.liveDevelopXMP?.cropAngle ?? appState.primarySelectedAsset?.xmp.cropAngle ?? 0.0) : 0.0
-                        Image(nsImage: img)
-                            .resizable()
-                            .interpolation(is100PercentZoom ? .none : .high)
-                            .frame(width: size.width, height: size.height)
-                            .rotationEffect(.degrees(-currentAngle))
-                            .position(layout.imagePosition(viewport: viewportSize, center: clamped.center, sourceRect: sourceRect))
+                        
+                        if appState.activeDevelopTool != .crop && appState.comparisonMode == .splitLeftRight {
+                            // 1. Left / Right Split View
+                            let splitX = viewportSize.width * max(0.05, min(0.95, appState.splitPosition))
+                            
+                            // Base Layer: After (Full Frame)
+                            Image(nsImage: img)
+                                .resizable()
+                                .interpolation(is100PercentZoom ? .none : .high)
+                                .frame(width: size.width, height: size.height)
+                                .rotationEffect(.degrees(-currentAngle))
+                                .position(layout.imagePosition(viewport: viewportSize, center: clamped.center, sourceRect: sourceRect))
+                            
+                            // Overlay Layer: Before (Masked to Left of Divider)
+                            let beforeToDisplay = beforeImage ?? img
+                            ZStack {
+                                Image(nsImage: beforeToDisplay)
+                                    .resizable()
+                                    .interpolation(is100PercentZoom ? .none : .high)
+                                    .frame(width: size.width, height: size.height)
+                                    .rotationEffect(.degrees(-currentAngle))
+                                    .position(layout.imagePosition(viewport: viewportSize, center: clamped.center, sourceRect: sourceRect))
+                            }
+                            .frame(width: viewportSize.width, height: viewportSize.height)
+                            .mask(
+                                HStack(spacing: 0) {
+                                    Rectangle().frame(width: max(0, splitX))
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(width: viewportSize.width, height: viewportSize.height)
+                            )
+                            
+                            // Draggable Split Divider Line & Handle
+                            ComparisonSplitDividerView(
+                                isVertical: true,
+                                containerSize: viewportSize,
+                                splitPosition: $appState.splitPosition
+                            )
+                            
+                            // Bottom Corner Badges
+                            VStack {
+                                Spacer()
+                                HStack {
+                                    ComparisonBadge(title: "BEFORE", subtitle: "As Shot", isBefore: true)
+                                        .padding(.leading, 16)
+                                    Spacer()
+                                    ComparisonBadge(title: "AFTER", subtitle: "Adjusted", isBefore: false)
+                                        .padding(.trailing, 16)
+                                }
+                                .padding(.bottom, 16)
+                            }
+                            
+                        } else if appState.activeDevelopTool != .crop && appState.comparisonMode == .splitTopBottom {
+                            // 2. Top / Bottom Split View
+                            let splitY = viewportSize.height * max(0.05, min(0.95, appState.splitPosition))
+                            
+                            // Base Layer: After (Full Frame)
+                            Image(nsImage: img)
+                                .resizable()
+                                .interpolation(is100PercentZoom ? .none : .high)
+                                .frame(width: size.width, height: size.height)
+                                .rotationEffect(.degrees(-currentAngle))
+                                .position(layout.imagePosition(viewport: viewportSize, center: clamped.center, sourceRect: sourceRect))
+                            
+                            // Overlay Layer: Before (Masked to Top of Divider)
+                            let beforeToDisplay = beforeImage ?? img
+                            ZStack {
+                                Image(nsImage: beforeToDisplay)
+                                    .resizable()
+                                    .interpolation(is100PercentZoom ? .none : .high)
+                                    .frame(width: size.width, height: size.height)
+                                    .rotationEffect(.degrees(-currentAngle))
+                                    .position(layout.imagePosition(viewport: viewportSize, center: clamped.center, sourceRect: sourceRect))
+                            }
+                            .frame(width: viewportSize.width, height: viewportSize.height)
+                            .mask(
+                                VStack(spacing: 0) {
+                                    Rectangle().frame(height: max(0, splitY))
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(width: viewportSize.width, height: viewportSize.height)
+                            )
+                            
+                            // Draggable Split Divider Line & Handle
+                            ComparisonSplitDividerView(
+                                isVertical: false,
+                                containerSize: viewportSize,
+                                splitPosition: $appState.splitPosition
+                            )
+                            
+                            // Corner Badges
+                            VStack {
+                                HStack {
+                                    ComparisonBadge(title: "BEFORE", subtitle: "As Shot", isBefore: true)
+                                        .padding(.leading, 16)
+                                        .padding(.top, 16)
+                                    Spacer()
+                                }
+                                Spacer()
+                                HStack {
+                                    ComparisonBadge(title: "AFTER", subtitle: "Adjusted", isBefore: false)
+                                        .padding(.leading, 16)
+                                        .padding(.bottom, 16)
+                                    Spacer()
+                                }
+                            }
+                            
+                        } else if appState.activeDevelopTool != .crop && appState.comparisonMode == .sideBySide {
+                            // 3. Side-by-Side Dual Viewport
+                            let halfWidth = viewportSize.width / 2
+                            let halfViewport = CGSize(width: halfWidth, height: viewportSize.height)
+                            let halfLayout = InspectionFrameLayout.make(pixels: pixels, sourceRect: sourceRect, fullExtent: fullExtent, zoomed: inspection.zoomed, viewport: halfViewport, backing: backingScale)
+                            
+                            HStack(spacing: 0) {
+                                // Left Pane: Before
+                                ZStack {
+                                    Color.black
+                                    let beforeToDisplay = beforeImage ?? img
+                                    Image(nsImage: beforeToDisplay)
+                                        .resizable()
+                                        .interpolation(is100PercentZoom ? .none : .high)
+                                        .frame(width: halfLayout.imageSize.width, height: halfLayout.imageSize.height)
+                                        .rotationEffect(.degrees(-currentAngle))
+                                        .position(halfLayout.imagePosition(viewport: halfViewport, center: clamped.center, sourceRect: sourceRect))
+                                    
+                                    VStack {
+                                        Spacer()
+                                        HStack {
+                                            ComparisonBadge(title: "BEFORE", subtitle: "As Shot", isBefore: true)
+                                                .padding(14)
+                                            Spacer()
+                                        }
+                                    }
+                                }
+                                .frame(width: halfWidth, height: viewportSize.height)
+                                .clipped()
+                                
+                                // Dividing Hairline
+                                Rectangle()
+                                    .fill(Color.white.opacity(0.3))
+                                    .frame(width: 1)
+                                
+                                // Right Pane: After
+                                ZStack {
+                                    Color.black
+                                    Image(nsImage: img)
+                                        .resizable()
+                                        .interpolation(is100PercentZoom ? .none : .high)
+                                        .frame(width: halfLayout.imageSize.width, height: halfLayout.imageSize.height)
+                                        .rotationEffect(.degrees(-currentAngle))
+                                        .position(halfLayout.imagePosition(viewport: halfViewport, center: clamped.center, sourceRect: sourceRect))
+                                    
+                                    VStack {
+                                        Spacer()
+                                        HStack {
+                                            Spacer()
+                                            ComparisonBadge(title: "AFTER", subtitle: "Adjusted", isBefore: false)
+                                                .padding(14)
+                                        }
+                                    }
+                                }
+                                .frame(width: halfWidth, height: viewportSize.height)
+                                .clipped()
+                            }
+                            
+                        } else if appState.activeDevelopTool != .crop && appState.isBeforeToggled {
+                            // 4. Toggle Before (Full-Screen Single Image)
+                            let beforeToDisplay = beforeImage ?? img
+                            Image(nsImage: beforeToDisplay)
+                                .resizable()
+                                .interpolation(is100PercentZoom ? .none : .high)
+                                .frame(width: size.width, height: size.height)
+                                .rotationEffect(.degrees(-currentAngle))
+                                .position(layout.imagePosition(viewport: viewportSize, center: clamped.center, sourceRect: sourceRect))
+                            
+                            // Prominent Floating BEFORE Badge
+                            VStack {
+                                HStack {
+                                    ComparisonBadge(title: "BEFORE", subtitle: "As Shot (\\ to exit)", isBefore: true)
+                                        .padding(16)
+                                    Spacer()
+                                }
+                                Spacer()
+                            }
+                            
+                        } else {
+                            // 5. Standard After View (or Crop Mode)
+                            Image(nsImage: img)
+                                .resizable()
+                                .interpolation(is100PercentZoom ? .none : .high)
+                                .frame(width: size.width, height: size.height)
+                                .rotationEffect(.degrees(-currentAngle))
+                                .position(layout.imagePosition(viewport: viewportSize, center: clamped.center, sourceRect: sourceRect))
+                        }
                     } else if isLoading || visibleDisplay.image == nil && selectedHandoff == nil {
                         ProgressView().allowsHitTesting(false)
                     } else {
@@ -772,6 +966,61 @@ public struct LoupeView: View {
                         .buttonStyle(.plain)
                         .help("Toggle Region-Of-Interest 100% Native Rendering")
                         
+                        // Before / After Comparison Menu Button
+                        Menu {
+                            Button {
+                                appState.comparisonMode = .off
+                                appState.isBeforeToggled = false
+                            } label: {
+                                Text("Single Image (After)")
+                            }
+                            Button {
+                                appState.toggleBeforeAfter()
+                            } label: {
+                                Text("Toggle Before / After")
+                            }
+                            .keyboardShortcut("\\", modifiers: [])
+                            
+                            Divider()
+                            
+                            Button {
+                                appState.comparisonMode = .splitLeftRight
+                                appState.isBeforeToggled = false
+                            } label: {
+                                Text("Left / Right Split")
+                            }
+                            .keyboardShortcut("y", modifiers: [])
+                            
+                            Button {
+                                appState.comparisonMode = .sideBySide
+                                appState.isBeforeToggled = false
+                            } label: {
+                                Text("Side-by-Side")
+                            }
+                            .keyboardShortcut("y", modifiers: .shift)
+                            
+                            Button {
+                                appState.comparisonMode = .splitTopBottom
+                                appState.isBeforeToggled = false
+                            } label: {
+                                Text("Top / Bottom Split")
+                            }
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: appState.comparisonMode == .off ? (appState.isBeforeToggled ? "clock.arrow.circlepath" : "rectangle.split.2x1") : appState.comparisonMode.iconName)
+                                    .font(.system(size: 10))
+                                Text(appState.comparisonMode == .off ? (appState.isBeforeToggled ? "BEFORE" : "B/A") : (appState.comparisonMode == .splitLeftRight ? "SPLIT" : (appState.comparisonMode == .sideBySide ? "2-UP" : "TOP/BOT")))
+                                    .font(.system(size: 9, weight: .bold))
+                            }
+                            .foregroundColor((appState.comparisonMode != .off || appState.isBeforeToggled) ? .black : LightroomTheme.accentYellow)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background((appState.comparisonMode != .off || appState.isBeforeToggled) ? LightroomTheme.accentYellow : Color.black.opacity(0.6))
+                            .cornerRadius(4)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .help("Before / After Comparison View (Y / \\)")
+                        
                         // Info Overlay Toggle Button
                         Button {
                             withAnimation(.easeInOut(duration: 0.15)) {
@@ -812,7 +1061,15 @@ public struct LoupeView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     .padding(12)
                 }
-                .onAppear { viewportPixels = viewportSize }
+                .onAppear {
+                    viewportPixels = viewportSize
+                    DispatchQueue.main.async {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
+                }
                 .onChange(of: viewportSize) { _, newSize in
                     viewportPixels = newSize
                     if roiPrototypeEnabled, inspection.zoomed, let asset = appState.primarySelectedAsset { updateProcessedImage(with: activeXMP(for: asset)) }
@@ -895,6 +1152,15 @@ public struct LoupeView: View {
             }
             return .ignored
         }
+        .onKeyPress(KeyEquivalent("\\")) {
+            appState.toggleBeforeAfter()
+            return .handled
+        }
+        .onKeyPress(KeyEquivalent("y")) {
+            let shift = NSEvent.modifierFlags.contains(.shift)
+            appState.cycleComparisonMode(forward: !shift)
+            return .handled
+        }
         .onKeyPress(.return) {
             if appState.activeDevelopTool == .crop {
                 appState.activeDevelopTool = .edit
@@ -945,12 +1211,20 @@ public struct LoupeView: View {
         }
         .task(id: appState.primarySelectedAssetID) {
             await loadSelectedImage()
+            if let asset = appState.primarySelectedAsset {
+                updateBeforeImage(for: asset)
+            }
         }
         .onChange(of: is100PercentZoom ? inspection.center : nil) { _, _ in
             if InspectionFrameLayout.canReuseNativeFrame(isNative: display.native, isROI: display.sourceRect != nil, zoomed: is100PercentZoom) && display.owns(assetID: appState.primarySelectedAssetID) && !isLoading && imageError == nil { return }
             if !is100PercentZoom && display.owns(assetID: appState.primarySelectedAssetID) { InspectionFrameLayout.leaveNative(display: &display) }
             InspectionTrace.event(is100PercentZoom ? "state.zoom_onchange_zoomed" : "state.zoom_onchange_fit_render", state: inspection)
-            if let asset = appState.primarySelectedAsset { updateProcessedImage(with: activeXMP(for: asset)) }
+            if let asset = appState.primarySelectedAsset {
+                updateProcessedImage(with: activeXMP(for: asset))
+                if appState.comparisonMode != .off || appState.isBeforeToggled {
+                    updateBeforeImage(for: asset)
+                }
+            }
         }
         .onDisappear {
             inspection.end()
@@ -958,8 +1232,19 @@ public struct LoupeView: View {
             _ = renderRevision.next()
             LiveDevelopPreviewEngine.shared.cancelPending()
             idleFullRenderTask?.cancel()
+            beforeRenderTask?.cancel()
             finishCurrentROIForeground()
             Task { await PreviewPreloader.shared.cancelForegroundSelection() }
+        }
+        .onChange(of: appState.comparisonMode) { _, _ in
+            if let asset = appState.primarySelectedAsset {
+                updateBeforeImage(for: asset)
+            }
+        }
+        .onChange(of: appState.isBeforeToggled) { _, isToggled in
+            if isToggled, let asset = appState.primarySelectedAsset {
+                updateBeforeImage(for: asset)
+            }
         }
         .onChange(of: appState.liveDevelopXMP) { _, newXMP in
             DispatchQueue.main.async {
@@ -992,6 +1277,7 @@ public struct LoupeView: View {
             if let asset = appState.primarySelectedAsset {
                 if currentBaseHolder == nil { Task { await loadSelectedImage() } }
                 else { updateProcessedImage(with: activeXMP(for: asset)) }
+                updateBeforeImage(for: asset)
             }
         }
     }
@@ -1000,6 +1286,45 @@ public struct LoupeView: View {
         guard !inspection.held else { return }
         inspection.persistent.toggle()
         if inspection.persistent { inspection.center = CGPoint(x: 0.5, y: 0.5) }
+        if (appState.comparisonMode != .off || appState.isBeforeToggled), let asset = appState.primarySelectedAsset {
+            updateBeforeImage(for: asset)
+        }
+    }
+    
+    private func updateBeforeImage(for asset: PhotoAsset) {
+        let targetID = asset.id
+        let model = asset.cameraMetadata.model
+        let native = is100PercentZoom
+        let preserveCrop = appState.comparisonMode.isSplit
+        let beforeXMP = activeXMP(for: asset).beforeState(preserveCrop: preserveCrop)
+        let identity = ProcessedROIRequest.settingsIdentity(beforeXMP) + "_zoom=\(native)_crop=\(preserveCrop)"
+        
+        if beforeAssetID == targetID, beforeIdentity == identity, beforeImage != nil {
+            return
+        }
+        
+        beforeRenderTask?.cancel()
+        beforeRenderTask = Task { @MainActor in
+            let holder: BaseImageHolder?
+            if (asset.xmp.temperature == nil || asset.xmp.temperature == 0),
+               let current = currentBaseHolder, holderAssetID == targetID {
+                holder = current
+            } else {
+                holder = await RAWImageLoader.shared.loadBaseHolder(from: asset.fileURL, xmp: nil)
+            }
+            guard !Task.isCancelled, appState.primarySelectedAssetID == targetID, let holder else { return }
+            let rendered = RAWImageLoader.shared.renderProcessed(
+                baseHolder: holder,
+                cameraModel: model,
+                xmp: beforeXMP,
+                interactive: false,
+                fullResolution: native
+            )
+            guard !Task.isCancelled, appState.primarySelectedAssetID == targetID else { return }
+            self.beforeImage = rendered
+            self.beforeAssetID = targetID
+            self.beforeIdentity = identity
+        }
     }
 
     @State private var currentBaseHolder: BaseImageHolder?

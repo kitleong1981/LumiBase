@@ -9,6 +9,10 @@ public struct MainLayoutView: View {
     
     public var body: some View {
         ZStack {
+            WindowFocusHelper()
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+            
             HStack(spacing: 0) {
                 // 1. Left Navigator & Collections Panel
                 if appState.isLeftSidebarVisible {
@@ -34,7 +38,7 @@ public struct MainLayoutView: View {
         }
         .environmentObject(appState)
         .background(LightroomTheme.workspaceBackground)
-        .navigationTitle("LumiBase v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.3.0")")
+        .navigationTitle("LumiBase v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.12.0")")
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 // Open Folder Button
@@ -148,6 +152,12 @@ public struct MainLayoutView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseCropTool"))) { _ in
             appState.toggleCropMode()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseToggleBeforeAfter"))) { _ in
+            appState.toggleBeforeAfter()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseCycleComparison"))) { _ in
+            appState.cycleComparisonMode()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseAutoTone"))) { _ in
             if let id = appState.primarySelectedAssetID {
@@ -313,5 +323,66 @@ public struct MainLayoutView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         .padding(24)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+}
+
+/// Invisible helper that prevents NSWindow from auto-focusing NSTextField (such as the search bar) on startup,
+/// keeping global single-key shortcuts active.
+struct WindowFocusHelper: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        FocusResigningNSView()
+    }
+    
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+private final class FocusResigningNSView: NSView {
+    private var didInitialResign = false
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window = self.window else { return }
+        window.initialFirstResponder = nil
+        
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowDidBecomeKey(_:)),
+            name: NSWindow.didBecomeKeyNotification,
+            object: window
+        )
+        
+        // Asynchronously clear first responder after initial presentation
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self = self, let window = window, !self.didInitialResign else { return }
+            self.didInitialResign = true
+            window.initialFirstResponder = nil
+            if window.firstResponder is NSTextView || window.firstResponder is NSTextField {
+                window.makeFirstResponder(nil)
+            }
+        }
+        
+        // Secondary check to ensure SwiftUI's initial layout does not re-focus the search field
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak window] in
+            guard let window = window else { return }
+            if window.firstResponder is NSTextView || window.firstResponder is NSTextField {
+                window.makeFirstResponder(nil)
+            }
+        }
+    }
+    
+    @objc private func windowDidBecomeKey(_ notification: Notification) {
+        guard let window = self.window, !didInitialResign else { return }
+        didInitialResign = true
+        window.initialFirstResponder = nil
+        DispatchQueue.main.async { [weak window] in
+            if window?.firstResponder is NSTextView || window?.firstResponder is NSTextField {
+                window?.makeFirstResponder(nil)
+            }
+        }
+    }
+    
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 }

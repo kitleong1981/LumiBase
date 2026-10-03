@@ -21,6 +21,12 @@ LumiBase 是一套專為 macOS (特別是 Apple Silicon M 系列晶片) 打造�
   - **選擇性同步 (Sync Settings Dialog)**：`⌘⇧S` 快捷鍵或右側底部 `Sync` 按鈕，支援選擇性勾選白平衡、基礎曝光、Presence、相機描述檔、黑白處理與幾何裁切，提供 `Check All`、`Check None` 與 `Modified Only` 智慧過濾。
   - **即時自動同步 (Auto Sync)**：`⌥⌘⇧S` 快捷鍵或點選 Auto Sync 開關，開啟後多選照片拉動任一滑桿即時連動所有選取照片。
   - **複製／貼上設定 (Copy & Paste Settings)**：`⌘⇧C` 複製自訂修圖設定，`⌘⇧V` / `⌥⌘V` 批次貼上至選取照片。
+- 🪞 **媲美 Lightroom Classic 的 Before / After 即時對比檢視引擎**：
+  - **單鍵切換原圖 (`\`)**：按下瞬切相機原始 As Shot 影像與當前調色，角落懸浮浮水印提示。
+  - **左右分割對比 (Left/Right Split, `Y`)**：左側原圖、右側調色後，中間具備原生手柄與分隔線，可自由左右拖動，雙擊手柄立即居中復位。
+  - **雙圖並排檢視 (Side-by-Side 2-Up, `⇧Y`)**：左右雙圖並列，雙圖 100% 畫素放大（1:1 Inspection）與滑鼠漫遊拖曳完全同步聯動。
+  - **上下分割對比 (Top/Bottom Split)**：水平分隔線自由滑動，適合橫幅風景高光天空對比。
+  - **0 延遲極速渲染**：Before 影像於後台單次解碼快取，調色時 Before 零 GPU 重複耗時，維持 Apple Silicon 120fps 滑桿手感。
 - 🎨 **1:1 Adobe Camera RAW 色彩還原**：
   - 整合 **Adobe Standard DCP (Digital Camera Profile)** 管理管線。
   - 完整支援 Adobe PV2012 色彩管線（曝光、色溫/色調、高光/陰影、對比、白色/黑色、鮮豔度、飽和度、去朦朧）。
@@ -40,13 +46,16 @@ LumiBase 是一套專為 macOS (特別是 Apple Silicon M 系列晶片) 打造�
   - 支援批次匯出與即時進度浮動 HUD。
 - ⌨️ **Lightroom 經典快捷鍵操作**：
   - **全選與取消全選**：`⌘A` (Command + A) 全選目前網格照片，`⌘D` (Command + D) 取消全選。
+  - **搜尋照片**：`⌘F` (Command + F) 快速聚焦頂部搜尋欄，按 `Enter` 或 `Esc` 退出搜尋並恢復單鍵快捷鍵。
+  - **Before / After 即時對比**：`\` 瞬切原圖 As Shot 與調色，`Y` 循環切換對比版面（分割/並排），`⇧Y` 反向循環。
   - **連續多選與範圍選取**：按住 `Control` / `⌘` 點選照片進行多選加減選；按住 `Shift` 點選兩張照片進行連續範圍全選。
   - **安全刪除 (Move to Trash)**：`⌘⌫` (Command + Backspace) 快速刪除選取照片，並同步清理 `.xmp` 側邊副檔，刪除前具備原生確認對話框。
   - **匯出**：`⇧⌘E` (Shift + Command + E) 快速匯出選取（或全部）照片為高品質 JPEG。
   - **Grid 2D 導覽**：`↑` / `↓` 整行跳轉，`←` / `→` 前後選取。
   - **檢視切換**：`Enter` / `Return` / `E` / `Space` 進入大圖預覽（Loupe View），`Esc` / `G` 返回網格（Grid View）。
+  - **100% 畫素縮放 (Zoom 1:1)**：`Z` 鍵或雙擊滑鼠在「Fit 全圖適配」與「100% 原生畫素」間切換。
   - **評分與旗標**：`0~5` 快速評星等，`P` 標記留用（Pick），`X` 標記剔除（Reject），`U` 取消標記（Unflag）。
-  - **面板收合**：`Tab` 鍵快速收合/展開左右兩側面板。
+  - **面板收合**：`Tab` 鍵快速收合/展開左右兩側面板，`F7` 獨立切換左面板，`F8` 獨立切換右面板。
 
 ---
 
@@ -96,6 +105,8 @@ LumiBase 是一套專為 macOS (特別是 Apple Silicon M 系列晶片) 打造�
 | **貼上修圖設定 (Paste Settings)** | `⇧⌘V` (Shift + Command + V) / `⌥⌘V` |
 | **同步修圖設定 (Sync Settings)** | `⇧⌘S` (Shift + Command + S) |
 | **開關自動同步 (Toggle Auto Sync)** | `⌥⇧⌘S` (Option + Shift + Command + S) |
+| **切換 Before/After 原圖對比** | `\` (反斜線) |
+| **循環切換對比模式 (Split/Side-by-Side)** | `Y` (前進) / `⇧Y` (後退) |
 
 > 💡 **全介面 Tooltip 提示**：滑鼠游標停留在介面上的任意按鈕、圖示、選單或評分旗標上約 1 秒，即可看見原生 Tooltip 提示與對應的鍵盤快捷鍵。
 

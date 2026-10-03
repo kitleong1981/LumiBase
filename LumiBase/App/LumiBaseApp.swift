@@ -12,7 +12,7 @@ struct LumiBaseApp: App {
     }
     
     private var appTitleWithVersion: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.3.0"
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.12.0"
         return "LumiBase v\(version)"
     }
     
@@ -63,6 +63,13 @@ struct LumiBaseApp: App {
                 
                 Divider()
                 
+                Button("Find Photos...") {
+                    NotificationCenter.default.post(name: NSNotification.Name("LumiBaseFocusSearch"), object: nil)
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                
+                Divider()
+                
                 Button("Move to Trash...") {
                     NotificationCenter.default.post(name: NSNotification.Name("LumiBaseDeletePhotos"), object: nil)
                 }
@@ -109,6 +116,18 @@ struct LumiBaseApp: App {
                     NotificationCenter.default.post(name: NSNotification.Name("LumiBaseCropTool"), object: nil)
                 }
                 .keyboardShortcut("r", modifiers: [])
+                
+                Divider()
+                
+                Button("Toggle Before / After") {
+                    NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleBeforeAfter"), object: nil)
+                }
+                .keyboardShortcut("\\", modifiers: [])
+                
+                Button("Cycle Comparison Mode") {
+                    NotificationCenter.default.post(name: NSNotification.Name("LumiBaseCycleComparison"), object: nil)
+                }
+                .keyboardShortcut("y", modifiers: [])
                 
                 Divider()
                 
