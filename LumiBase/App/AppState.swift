@@ -37,8 +37,23 @@ public final class AppState: ObservableObject {
     @Published public var isCropAspectLocked: Bool = true
     @Published public var cropOverlayStyle: CropOverlayStyle = .grid
     
+    // Before / After Comparison State (Lightroom Classic Workflow)
+    @Published public var comparisonMode: ComparisonMode = .off
+    @Published public var isBeforeToggled: Bool = false
+    @Published public var splitPosition: CGFloat = 0.5
+    
     // View state
-    @Published public var viewMode: ViewMode = .grid
+    @Published public var viewMode: ViewMode = .grid {
+        didSet {
+            guard oldValue != viewMode else { return }
+            DispatchQueue.main.async {
+                NSApplication.shared.keyWindow?.makeFirstResponder(nil)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                NSApplication.shared.keyWindow?.makeFirstResponder(nil)
+            }
+        }
+    }
     @Published public var thumbnailSize: CGFloat = 220
     @Published public var gridColumnsCount: Int = 4
     @Published public var filterCriteria: FilterCriteria = FilterCriteria()
@@ -336,6 +351,12 @@ public final class AppState: ObservableObject {
         case "i", "I":
             NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleInfoOverlay"), object: nil)
             return true
+        case "\\":
+            self.toggleBeforeAfter()
+            return true
+        case "y", "Y":
+            self.cycleComparisonMode(forward: !flags.contains(.shift))
+            return true
         case " ":
             self.viewMode = (self.viewMode == .grid) ? .loupe : .grid
             return true
@@ -556,6 +577,7 @@ public final class AppState: ObservableObject {
             liveDevelopAssetID = nil
             liveDevelopXMP = nil
             liveCommitTask?.cancel()
+            isBeforeToggled = false
         }
         
         if isRange {
@@ -939,6 +961,38 @@ public final class AppState: ObservableObject {
         }
     }
     
+    // MARK: - Before / After Comparison Actions
+    
+    /// Toggles single-image Before (As Shot) view with \ shortcut
+    public func toggleBeforeAfter() {
+        if comparisonMode != .off {
+            comparisonMode = .off
+            isBeforeToggled = false
+        } else {
+            isBeforeToggled.toggle()
+        }
+    }
+    
+    /// Cycles through Before/After comparison modes (Off -> Split -> Side-by-Side -> Top/Bottom -> Off)
+    public func cycleComparisonMode(forward: Bool = true) {
+        if activeDevelopTool == .crop {
+            activeDevelopTool = .edit
+        }
+        isBeforeToggled = false
+        let all = ComparisonMode.allCases
+        guard let idx = all.firstIndex(of: comparisonMode) else {
+            comparisonMode = .splitLeftRight
+            return
+        }
+        if forward {
+            let nextIdx = (idx + 1) % all.count
+            comparisonMode = all[nextIdx]
+        } else {
+            let prevIdx = (idx - 1 + all.count) % all.count
+            comparisonMode = all[prevIdx]
+        }
+    }
+    
     // MARK: - Crop & Rotate Actions
     
     /// Toggles between Edit (Develop adjustments) and Crop & Straighten mode
@@ -952,6 +1006,8 @@ public final class AppState: ObservableObject {
             activeDevelopTool = .edit
         } else {
             activeDevelopTool = .crop
+            comparisonMode = .off
+            isBeforeToggled = false
             if viewMode == .grid {
                 viewMode = .loupe
             }

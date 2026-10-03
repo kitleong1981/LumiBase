@@ -63,6 +63,15 @@ public struct TopFilterBarView: View {
                     NSApp.keyWindow?.makeFirstResponder(nil)
                 }
             }
+            .onChange(of: appState.viewMode) { _, _ in
+                isSearchFocused = false
+                DispatchQueue.main.async {
+                    NSApp.keyWindow?.makeFirstResponder(nil)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    NSApp.keyWindow?.makeFirstResponder(nil)
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseFocusSearch"))) { _ in
                 isSearchFocused = true
             }

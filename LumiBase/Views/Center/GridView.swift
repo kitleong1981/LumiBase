@@ -57,6 +57,14 @@ public struct GridView: View {
                     }
                 }
                 .background(LightroomTheme.workspaceBackground)
+                .onAppear {
+                    DispatchQueue.main.async {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
+                }
                 .focusable()
                 .focusEffectDisabled()
                 .onKeyPress(.leftArrow) {

@@ -5,7 +5,24 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.12.0] - 2026-10-03
+
+### Added
+- **Before / After Comparison View Engine (`ComparisonMode`, `LoupeView`, `ComparisonOverlayViews`)**:
+  - **Single Image Toggle (`\`)**: Instant 0ms toggle between camera original (As Shot) and current develop adjustments with floating "BEFORE" badge.
+  - **Left / Right Split View (`Y`)**: Subpixel-aligned split screen comparing Before on the left and After on the right, featuring an interactive draggable divider line with grab handle, cursor feedback, and double-click 50% recentering.
+  - **Side-by-Side Dual Viewport (2-Up, `⇧Y`)**: Side-by-side full frame inspection with synchronized 100% pixel zoom (1:1 ROI) and mouse pan lockstep.
+  - **Top / Bottom Split View**: Horizontal draggable split line for vertical composition and landscape highlight comparison.
+  - **Zero-Overhead As-Shot Cache**: Before raster is decoded and prepared once in the background, eliminating any GPU overhead or frame drops during 120fps live slider interaction.
+  - **UI Integration**: Added Before/After menu switcher in Loupe view top-right overlay toolbar, bottom controls bar, and macOS native `Develop` menu with clean native right-aligned keyboard shortcut badges.
+  - **Unit Tests (`BeforeAfterComparisonTests`)**: Added 5 comprehensive unit tests verifying XMP before-state generation, comparison mode cycling, crop safety transitions, and global keyboard shortcuts.
+
+### Improved & Fixed
+- **Search Bar Focus & Global Keyboard Workflow (`WindowFocusHelper`, `AppState`, `TopFilterBarView`, `LoupeView`)**:
+  - Fixed AppKit initial key view selection on app launch and mode transition (Grid ↔ Loupe), preventing the search `TextField` from stealing focus on startup or upon entering Loupe view.
+  - Retained instant single-key shortcuts (`G`, `E`, `Space`, `\`, `Y`, `0`..`5`, `P`, `X`, `U`, arrow keys) ready for immediate interaction upon opening.
+  - Added global `⌘F` (Find Photos...) shortcut in menu bar and `AppState` to focus the search bar on demand, and automatically restore window first responder upon `Enter` or `Esc`.
+  - Fixed Markdown parenthesis escaping in menu item titles, presenting clean native menu items with right-aligned shortcut indicators.
 
 ## [1.11.0] - 2026-09-28
 

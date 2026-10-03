@@ -13,10 +13,11 @@
 3. [高速選圖與評級篩選 (Culling & Filtering Workflow)](#3-高速選圖與評級篩選-culling--filtering-workflow)
 4. [基礎調光與色彩調整 (Develop Basic Adjustments)](#4-基礎調光與色彩調整-develop-basic-adjustments)
 5. [裁切與水平旋轉校正 (Crop & Straighten Tool)](#5-裁切與水平旋轉校正-crop--straighten-tool)
-6. [批次同步與自動同步 (Develop Sync & Auto Sync)](#6-批次同步與自動同步-develop-sync--auto-sync)
-7. [非破壞性 XMP 檔案機制 (XMP Sidecar Compatibility)](#7-非破壞性-xmp-檔案機制-xmp-sidecar-compatibility)
-8. [高品質 JPEG 批次匯出 (Export Workflow)](#8-高品質-jpeg-批次匯出-export-workflow)
-9. [完整快速鍵速查表 (Keyboard Shortcuts Matrix)](#9-完整快速鍵速查表-keyboard-shortcuts-matrix)
+6. [Before / After 即時對比檢視 (Comparison View)](#6-before--after-即時對比檢視-comparison-view)
+7. [批次同步與自動同步 (Develop Sync & Auto Sync)](#7-批次同步與自動同步-develop-sync--auto-sync)
+8. [非破壞性 XMP 檔案機制 (XMP Sidecar Compatibility)](#8-非破壞性-xmp-檔案機制-xmp-sidecar-compatibility)
+9. [高品質 JPEG 批次匯出 (Export Workflow)](#9-高品質-jpeg-批次匯出-export-workflow)
+10. [完整快速鍵速查表 (Keyboard Shortcuts Matrix)](#10-完整快速鍵速查表-keyboard-shortcuts-matrix)
 
 ---
 
@@ -153,28 +154,60 @@ LumiBase 提供 1:1 媲美 Lightroom Classic 的互動裁切與水平校正系�
 
 ---
 
-## 6. 批次同步與自動同步 (Develop Sync & Auto Sync)
+## 6. Before / After 即時對比檢視 (Comparison View)
+
+LumiBase 具備媲美 Adobe Lightroom Classic 的專業修圖前後對比系統，提供多種直觀模式供您快速審視調色成效：
+
+### 6.1 單鍵即時切換 (`\` 鍵)
+- 在 Loupe 大圖檢視下，隨時按下 **`\`**（反斜線）鍵，即可瞬間切換顯示相機未調整的原始狀態（As Shot 原圖）。
+- 檢視 Before 原圖時，畫面左上方會浮動標註 **「BEFORE」** 徽章提醒。
+- 再次按下 **`\`** 鍵即瞬間回到當前調色結果。
+
+### 6.2 左右分割對比 (Left / Right Split, `Y` 鍵)
+- 按下 **`Y`** 鍵進入分割檢視模式。
+- 同一畫面中：**左半部顯示 Before 原圖**，**右半部顯示 After 調色後**。
+- **互動可拖曳分隔線**：畫面中央提供精緻的分隔線與圓形雙向箭頭手柄，滑鼠按住即可自由左右滑動，隨時比較不同區域的調整幅度。
+- **雙擊手柄復位**：在分隔線手柄上雙擊滑鼠，立即將對比線置中復位至 50% 處。
+- 左下角與右下角分別顯示精緻的「BEFORE」與「AFTER」半透明標籤。
+
+### 6.3 雙圖並排檢視 (Side-by-Side 2-Up, `⇧Y` 鍵)
+- 按下 **`⇧Y`** (Shift + Y) 鍵切換至左右雙圖並排模式。
+- 左側完整顯示 Before 原圖，右側完整顯示 After 調色圖。
+- **同步聯動 1:1 畫素放大與漫遊**：按下 `Z` 鍵或雙擊任一邊畫面進入 100% 原生畫素時，左右兩張圖將**完全同步縮放並鎖定相同焦點座標**；按住滑鼠拖曳漫遊時，兩圖同步平移，極度適合細部銳化與噪點對比。
+
+### 6.4 上下分割對比 (Top / Bottom Split)
+- 適合風景與地平線照片：上半部顯示 Before，下半部顯示 After。
+- 提供水平可拖曳分隔線，便於精準觀察天空雲層高光還原前後的層次細節。
+
+### 6.5 快速操作與選單切換
+- **頂部工具列選單**：點擊 Loupe 畫面右上角工具列的 **`B/A`** 按鈕，可透過彈出選單一鍵切換所有模式。
+- **底部控制列選單**：在視窗底部的 View Mode 旁亦提供對比模式下拉選單。
+- **macOS 選單列**：可從系統頂部選單 `Develop` $\rightarrow$ `Toggle Before / After` (`\`) 或 `Cycle Comparison Mode` (`Y`) 操作。
+
+---
+
+## 7. 批次同步與自動同步 (Develop Sync & Auto Sync)
 
 在處理成百上千張相片時，LumiBase 具備 Lightroom 等級的強大批次處理能力：
 
-### 6.1 選擇性同步 (Sync Settings Dialog)
+### 7.1 選擇性同步 (Sync Settings Dialog)
 1. 在 Grid 或 Filmstrip 中選取多張相片（先點選已修好的**來源照片**，再按住 `⌘` 或 `Shift` 加選其他目標照片）。
 2. 按下 **`⌘⇧S`** (Command + Shift + S) 或點擊右下角 **「Sync」** 按鈕。
 3. 在彈出的專業對話框中選擇欲同步的項目（白平衡、色調、Presence、幾何裁切等），並可使用 `Modified Only` 快速選取已調整項。
 4. 點擊 **「Synchronize」** 即刻完成批次同步。
 
-### 6.2 即時自動同步 (Auto Sync)
+### 7.2 即時自動同步 (Auto Sync)
 1. 選取多張相片。
 2. 切換右下角開關或按下 **`⌥⌘⇧S`** / **`⌥⌘S`** 啟用 **Auto Sync**（按鈕呈現金色高亮狀態）。
 3. 此時在右側面板調整任何滑桿、點擊 Auto Tone 或裁切，所有選取的照片將**即時同步聯動**。
 
-### 6.3 複製與貼上修圖設定 (Copy & Paste)
+### 7.3 複製與貼上修圖設定 (Copy & Paste)
 - **複製設定 (`⌘⇧C`)**：選取來源照片後按 **`⌘⇧C`**，選擇要複製的參數存入剪貼簿。
 - **貼上設定 (`⌘⇧V` 或 `⌥⌘V`)**：選取一張或多張目標照片，按 **`⌘⇧V`** 快速套用。
 
 ---
 
-## 7. 非破壞性 XMP 檔案機制 (XMP Sidecar Compatibility)
+## 8. 非破壞性 XMP 檔案機制 (XMP Sidecar Compatibility)
 
 - **100% 非破壞性編輯**：LumiBase 永遠不會直接修改您的 RAW 原始檔案。
 - **自動生成 `.xmp` 側邊檔**：當您為相片設定星等、旗標、裁切或調整色調時，系統會在相片同目錄下自動產生標準 Adobe 格式的 `.xmp` 副檔（例如 `DSC01234.ARW` $\rightarrow$ `DSC01234.xmp`）。
@@ -182,7 +215,7 @@ LumiBase 提供 1:1 媲美 Lightroom Classic 的互動裁切與水平校正系�
 
 ---
 
-## 8. 高品質 JPEG 批次匯出 (Export Workflow)
+## 9. 高品質 JPEG 批次匯出 (Export Workflow)
 
 - **快捷匯出 (`⇧⌘E`)**：選取欲匯出的相片（未選取時預設匯出全部），按下 **`⇧⌘E`** (Shift + Command + E) 或點擊工具列上的 **「Export」** 按鈕。
 - **高畫質算圖**：全尺寸感光元件 Demosaicing 算圖，並完整套用色調曲線、裁切旋轉與降噪銳化。
@@ -192,7 +225,7 @@ LumiBase 提供 1:1 媲美 Lightroom Classic 的互動裁切與水平校正系�
 
 ---
 
-## 9. 完整快速鍵速查表 (Keyboard Shortcuts Matrix)
+## 10. 完整快速鍵速查表 (Keyboard Shortcuts Matrix)
 
 ### 📌 全域與介面 (Global & UI)
 | 功能 | 快捷鍵 | 說明 |
@@ -209,6 +242,7 @@ LumiBase 提供 1:1 媲美 Lightroom Classic 的互動裁切與水平校正系�
 ### 🖼️ 瀏覽與導覽 (Navigation & Selection)
 | 功能 | 快捷鍵 | 說明 |
 | :--- | :---: | :--- |
+| **搜尋照片 (Find Photos)** | `⌘F` | 聚焦頂部搜尋欄（按 `Enter` / `Esc` 退出並恢復快捷鍵） |
 | **大圖預覽 (Loupe View)** | `Enter` / `Return` / `E` / `Space` | 進入大圖檢視 |
 | **圖庫網格 (Grid View)** | `Esc` / `G` / `Space` | 返回網格檢視 |
 | **1:1 原生畫素放大 (Zoom)** | `Z` / 雙擊滑鼠 | 在 Fit（全圖）與 100% 畫素間切換 |
@@ -246,6 +280,16 @@ LumiBase 提供 1:1 媲美 Lightroom Classic 的互動裁切與水平校正系�
 | **確認並退出裁切** | `Enter` / `Return` / `R` | 套用裁切設定並儲存至 XMP |
 | **取消裁切編輯** | `Esc` | 放棄本次調整並退出 |
 | **復位裁切 (Reset)** | 點擊 Reset 按鈕 | 清除裁切與旋轉，恢復相片全圖 |
+
+---
+
+### 🪞 Before / After 對比 (Comparison View)
+| 功能 | 快捷鍵 | 說明 |
+| :--- | :---: | :--- |
+| **切換 Before/After 原圖** | `\` | 瞬間切換 As Shot 相機原圖與調色後效果 |
+| **循環切換對比模式 (前進)** | `Y` | 循環切換：單圖 $\rightarrow$ 左右分割 $\rightarrow$ 雙圖並排 $\rightarrow$ 上下分割 $\rightarrow$ 關閉 |
+| **循環切換對比模式 (後退)** | `⇧Y` | 逆向循環對比模式 |
+| **左右分割線居中復位** | 雙擊手柄 | 快速將分割對比線復位至中央 50% |
 
 ---
 

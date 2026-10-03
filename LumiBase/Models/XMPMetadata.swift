@@ -217,6 +217,32 @@ public struct XMPMetadata: Codable, Equatable, Sendable {
         hasCrop
     }
 
+    /// Returns a copy of metadata representing the "Before" unedited state (camera As-Shot baseline).
+    /// If `preserveCrop` is true, keeps the active crop framing so Split View before/after geometry aligns 1:1.
+    public func beforeState(preserveCrop: Bool = true) -> XMPMetadata {
+        var before = self
+        before.exposure2012 = nil
+        before.temperature = nil
+        before.tint = nil
+        before.contrast2012 = nil
+        before.highlights2012 = nil
+        before.advancedRAWHighlightRecovery = nil
+        before.shadows2012 = nil
+        before.whites2012 = nil
+        before.blacks2012 = nil
+        before.dehaze = nil
+        before.vibrance = nil
+        before.saturation = nil
+        before.clarity2012 = nil
+        before.texture = nil
+        before.convertToGrayscale = nil
+        before.cameraProfile = nil
+        if !preserveCrop {
+            before.resetCrop()
+        }
+        return before
+    }
+
     /// Stable identity for every develop value that can affect rendered thumbnail pixels.
     /// Optional markers keep this independent of locale and avoid ambiguous concatenation.
     var thumbnailDevelopCacheIdentity: String {

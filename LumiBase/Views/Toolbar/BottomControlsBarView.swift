@@ -34,6 +34,61 @@ public struct BottomControlsBarView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Loupe View (E)")
+                
+                if appState.viewMode == .loupe {
+                    Menu {
+                        Button {
+                            appState.comparisonMode = .off
+                            appState.isBeforeToggled = false
+                        } label: {
+                            Text("Single Image (After)")
+                        }
+                        Button {
+                            appState.toggleBeforeAfter()
+                        } label: {
+                            Text("Toggle Before / After")
+                        }
+                        .keyboardShortcut("\\", modifiers: [])
+                        
+                        Divider()
+                        
+                        Button {
+                            appState.comparisonMode = .splitLeftRight
+                            appState.isBeforeToggled = false
+                        } label: {
+                            Text("Left / Right Split")
+                        }
+                        .keyboardShortcut("y", modifiers: [])
+                        
+                        Button {
+                            appState.comparisonMode = .sideBySide
+                            appState.isBeforeToggled = false
+                        } label: {
+                            Text("Side-by-Side")
+                        }
+                        .keyboardShortcut("y", modifiers: .shift)
+                        
+                        Button {
+                            appState.comparisonMode = .splitTopBottom
+                            appState.isBeforeToggled = false
+                        } label: {
+                            Text("Top / Bottom Split")
+                        }
+                    } label: {
+                        HStack(spacing: 2) {
+                            Image(systemName: appState.comparisonMode == .off ? (appState.isBeforeToggled ? "clock.arrow.circlepath" : "rectangle.split.2x1") : appState.comparisonMode.iconName)
+                                .font(.system(size: 12))
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 8))
+                        }
+                        .foregroundColor((appState.comparisonMode != .off || appState.isBeforeToggled) ? LightroomTheme.accentYellow : LightroomTheme.textMuted)
+                        .padding(5)
+                        .background((appState.comparisonMode != .off || appState.isBeforeToggled) ? LightroomTheme.cardSelectedBackground : Color.clear)
+                        .cornerRadius(4)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .help("Before / After Comparison View (Y / \\)")
+                }
             }
             
             Divider()
