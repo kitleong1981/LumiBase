@@ -4,6 +4,20 @@ import AppKit
 /// Bottom horizontal thumbnail carousel for Loupe view
 public struct FilmstripView: View {
     @ObservedObject var appState: AppState
+    @State private var hasLaidOutContent = false
+
+    // Share the grid's explicit-active/visible-collection validation, never a
+    // fallback member of multi-selection or the first unfiltered photo.
+    private var activeScrollTargetID: String? { appState.gridScrollTargetID }
+
+    private func restoreActivePhoto(using proxy: ScrollViewProxy) {
+        // One main-loop turn lets the lazy stack register its destinations.
+        DispatchQueue.main.async {
+            guard hasLaidOutContent, appState.viewMode == .loupe,
+                  appState.isFilmstripVisible, let id = activeScrollTargetID else { return }
+            proxy.scrollTo(id, anchor: .center)
+        }
+    }
     
     public var body: some View {
         ScrollViewReader { proxy in
@@ -58,16 +72,24 @@ public struct FilmstripView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(FilmstripWheelBridge())
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                    guard !hasLaidOutContent, size.width > 0, size.height > 0 else { return }
+                    hasLaidOutContent = true
+                    // Restore only once per mount, not on later lazy layouts or wheel scrolling.
+                    restoreActivePhoto(using: proxy)
+                }
             }
             .frame(height: 85)
             .background(PhotoKeyboardFocusSurface(appState: appState))
             .background(LightroomTheme.headerBackground)
-            .onChange(of: appState.primarySelectedAssetID) { _, newID in
-                if let newID = newID {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        proxy.scrollTo(newID, anchor: .center)
-                    }
-                }
+            .onChange(of: activeScrollTargetID) { _, _ in
+                restoreActivePhoto(using: proxy)
+            }
+            .onChange(of: appState.viewMode) { _, mode in
+                if mode == .loupe { restoreActivePhoto(using: proxy) }
+            }
+            .onChange(of: appState.isFilmstripVisible) { _, visible in
+                if visible { restoreActivePhoto(using: proxy) }
             }
         }
     }
