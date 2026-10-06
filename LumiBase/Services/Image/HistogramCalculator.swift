@@ -22,7 +22,10 @@ public final class HistogramCalculator: Sendable {
     
     /// Computes 256-bin histogram from an NSImage
     public static func computeHistogram(for image: NSImage) async -> HistogramData {
-        return await Task.detached(priority: .utility) { () -> HistogramData in
+        guard !Task.isCancelled else { return .empty }
+        let work = Task.detached(priority: .utility) { () -> HistogramData in
+            guard !Task.isCancelled else { return .empty }
+            ImageWorkDiagnostics.record("histogramBins")
             guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
                 return .empty
             }
@@ -53,6 +56,7 @@ public final class HistogramCalculator: Sendable {
                 return .empty
             }
             
+            guard !Task.isCancelled else { return .empty }
             context.draw(cgImage, in: CGRect(x: 0, y: 0, width: sampleWidth, height: sampleHeight))
             
             var rBins = [UInt](repeating: 0, count: 256)
@@ -62,6 +66,7 @@ public final class HistogramCalculator: Sendable {
             
             let pixelCount = sampleWidth * sampleHeight
             for i in 0..<pixelCount {
+                if i % 1024 == 0 && Task.isCancelled { return .empty }
                 let offset = i * 4
                 let r = Int(rawData[offset])
                 let g = Int(rawData[offset + 1])
@@ -103,6 +108,7 @@ public final class HistogramCalculator: Sendable {
             let normL = normalizeAndSmooth(lBins)
             
             return HistogramData(red: normR, green: normG, blue: normB, luminance: normL)
-        }.value
+        }
+        return await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
     }
 }

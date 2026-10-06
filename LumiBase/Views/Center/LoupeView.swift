@@ -220,6 +220,7 @@ struct InspectionDisplay {
     private(set) var filename = ""
     private(set) var pixels = CGSize(width: 1, height: 1)
     private(set) var native = false
+    private(set) var accurate = false
     private(set) var sourceRect: CGRect?
     private(set) var fullExtent: CGRect = .zero
     private(set) var developSettingsIdentity: String?
@@ -231,6 +232,7 @@ struct InspectionDisplay {
         var filename: String
         var pixels: CGSize
         var native: Bool
+        var accurate: Bool
         var sourceRect: CGRect?
         var fullExtent: CGRect
         var developSettingsIdentity: String?
@@ -257,21 +259,22 @@ struct InspectionDisplay {
         guard owns(assetID: assetID), let image else { return (nil, false) }
         return (image, developSettingsIdentity == nil || developSettingsIdentity == settingsIdentity)
     }
-    mutating func accept(_ image: NSImage?, filename: String, pixels: CGSize, native: Bool, ticket: UUID, sourceRect: CGRect? = nil, fullExtent: CGRect? = nil, developSettingsIdentity: String? = nil) {
-        accept(image, assetID: assetID, filename: filename, pixels: pixels, native: native, ticket: ticket, sourceRect: sourceRect, fullExtent: fullExtent, developSettingsIdentity: developSettingsIdentity)
+    mutating func accept(_ image: NSImage?, filename: String, pixels: CGSize, native: Bool, ticket: UUID, sourceRect: CGRect? = nil, fullExtent: CGRect? = nil, developSettingsIdentity: String? = nil, accurate: Bool = true) {
+        accept(image, assetID: assetID, filename: filename, pixels: pixels, native: native, ticket: ticket, sourceRect: sourceRect, fullExtent: fullExtent, developSettingsIdentity: developSettingsIdentity, accurate: accurate)
     }
-    mutating func accept(_ image: NSImage?, assetID: String?, filename: String, pixels: CGSize, native: Bool, ticket: UUID, sourceRect: CGRect? = nil, fullExtent: CGRect? = nil, developSettingsIdentity: String? = nil) {
+    mutating func accept(_ image: NSImage?, assetID: String?, filename: String, pixels: CGSize, native: Bool, ticket: UUID, sourceRect: CGRect? = nil, fullExtent: CGRect? = nil, developSettingsIdentity: String? = nil, accurate: Bool = true) {
         guard revision.accepts(ticket), self.assetID == assetID, let image else { return }
         let extent = fullExtent ?? CGRect(origin: .zero, size: pixels)
         self.image = image
         self.filename = filename
         self.pixels = pixels
         self.native = native
+        self.accurate = accurate
         self.sourceRect = sourceRect
         self.fullExtent = extent
         self.developSettingsIdentity = developSettingsIdentity
         if sourceRect == nil {
-            lastFullFit = Frame(image: image, assetID: assetID, filename: filename, pixels: pixels, native: native, sourceRect: nil, fullExtent: extent, developSettingsIdentity: developSettingsIdentity)
+            lastFullFit = Frame(image: image, assetID: assetID, filename: filename, pixels: pixels, native: native, accurate: accurate, sourceRect: nil, fullExtent: extent, developSettingsIdentity: developSettingsIdentity)
         }
     }
     mutating func restoreFullFit() {
@@ -281,6 +284,7 @@ struct InspectionDisplay {
         filename = frame.filename
         pixels = frame.pixels
         native = frame.native
+        accurate = frame.accurate
         sourceRect = frame.sourceRect
         fullExtent = frame.fullExtent
         developSettingsIdentity = frame.developSettingsIdentity
@@ -518,10 +522,13 @@ struct InspectionSurface: NSViewRepresentable {
 public struct LoupeView: View {
     @ObservedObject var appState: AppState
     private var displayForSelectedAsset: InspectionDisplay {
-        display.owns(assetID: appState.primarySelectedAssetID) ? display : InspectionDisplay()
+        display.owns(assetID: appState.primarySelectedAssetID) && displaySourceVersion == appState.displaySourceRevision &&
+            displayIsCamera == (appState.workspaceMode == .library && !is100PercentZoom) ? display : InspectionDisplay()
     }
     
     @State private var display = InspectionDisplay()
+    @State private var displaySourceVersion: UInt64 = 0
+    @State private var displayIsCamera = true
     @State private var displayTicket = UUID()
     @State private var isLoading: Bool = false
     @State private var inspection = InspectionState()
@@ -550,7 +557,7 @@ public struct LoupeView: View {
                 let visibleSettingsIdentity = appState.primarySelectedAsset.map { ProcessedROIRequest.settingsIdentity(activeXMP(for: $0)) }
                 let presentation = visibleDisplay.presentation(for: appState.primarySelectedAssetID, settingsIdentity: visibleSettingsIdentity)
                 let visibleImageIsCurrent = presentation.settingsCurrent
-                let selectedHandoff = appState.primarySelectedAsset.flatMap {
+                let selectedHandoff = (appState.workspaceMode == .library ? nil : appState.primarySelectedAsset).flatMap {
                     InspectionReadyFrameHandoff.current(for: $0, xmp: activeXMP(for: $0), display: display,
                     zoomed: inspection.zoomed, center: inspection.center, viewport: viewportPixels, backing: backingScale,
                     allowROI: roiPrototypeEnabled)
@@ -939,6 +946,10 @@ public struct LoupeView: View {
                             HStack(spacing: 4) {
                                 Image(systemName: is100PercentZoom ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                                     .font(.system(size: 9))
+                                if let selected = appState.primarySelectedAsset {
+                                    Text(!visibleDisplay.accurate && !displayIsCamera ? (is100PercentZoom ? "Preview • preparing native 100%" : "Preview • preparing accurate Develop") : appState.previewLabel(for: selected, native: is100PercentZoom))
+                                        .font(.system(size: 10))
+                                }
                                 Text(showingHandoffProxy ? "Cached Preview" : (is100PercentZoom ? (visibleDisplay.native && !isLoading && imageError == nil ? (visibleDisplay.sourceRect == nil ? "100%" : "ROI 100%") : (roiPrototypeEnabled ? "Preparing ROI 100%" : "Preparing native 100%")) : "FIT"))
                                     .font(.system(size: 10, weight: .bold))
                             }
@@ -1209,13 +1220,19 @@ public struct LoupeView: View {
                 showInfoOverlay.toggle()
             }
         }
-        .task(id: appState.primarySelectedAssetID) {
+         .onChange(of: display.image.map(ObjectIdentifier.init)) { _, _ in
+            appState.publishDisplayedBitmap(display.image, assetID: display.assetID,
+                label: display.accurate ? "Developed display bitmap" : (displayIsCamera ? "JPEG • camera preview (not RAW clipping)" : "Preview • preparing accurate display"),
+                accurate: display.accurate, allowPreviewHistogram: displayIsCamera && !is100PercentZoom)
+        }
+        .task(id: "\(appState.primarySelectedAssetID ?? "")|\(appState.primarySelectedAsset?.dateModified.timeIntervalSinceReferenceDate ?? 0)|\(appState.primarySelectedAsset?.fileSize ?? 0)|\(appState.displaySourceRevision)|\(appState.workspaceMode == .library && is100PercentZoom)") {
             await loadSelectedImage()
             if let asset = appState.primarySelectedAsset {
                 updateBeforeImage(for: asset)
             }
         }
         .onChange(of: is100PercentZoom ? inspection.center : nil) { _, _ in
+            if appState.workspaceMode == .library && (currentBaseHolder == nil || !is100PercentZoom) { return }
             if InspectionFrameLayout.canReuseNativeFrame(isNative: display.native, isROI: display.sourceRect != nil, zoomed: is100PercentZoom) && display.owns(assetID: appState.primarySelectedAssetID) && !isLoading && imageError == nil { return }
             if !is100PercentZoom && display.owns(assetID: appState.primarySelectedAssetID) { InspectionFrameLayout.leaveNative(display: &display) }
             InspectionTrace.event(is100PercentZoom ? "state.zoom_onchange_zoomed" : "state.zoom_onchange_fit_render", state: inspection)
@@ -1292,6 +1309,8 @@ public struct LoupeView: View {
     }
     
     private func updateBeforeImage(for asset: PhotoAsset) {
+        guard appState.workspaceMode == .develop, appState.comparisonMode != .off || appState.isBeforeToggled else { return }
+        let sourceRevision = appState.displaySourceRevision
         let targetID = asset.id
         let model = asset.cameraMetadata.model
         let native = is100PercentZoom
@@ -1307,12 +1326,12 @@ public struct LoupeView: View {
         beforeRenderTask = Task { @MainActor in
             let holder: BaseImageHolder?
             if (asset.xmp.temperature == nil || asset.xmp.temperature == 0),
-               let current = currentBaseHolder, holderAssetID == targetID {
+               displaySourceVersion == appState.displaySourceRevision, let current = currentBaseHolder, holderAssetID == targetID {
                 holder = current
             } else {
                 holder = await RAWImageLoader.shared.loadBaseHolder(from: asset.fileURL, xmp: nil)
             }
-            guard !Task.isCancelled, appState.primarySelectedAssetID == targetID, let holder else { return }
+            guard !Task.isCancelled, appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID, let holder else { return }
             let rendered = RAWImageLoader.shared.renderProcessed(
                 baseHolder: holder,
                 cameraModel: model,
@@ -1320,7 +1339,7 @@ public struct LoupeView: View {
                 interactive: false,
                 fullResolution: native
             )
-            guard !Task.isCancelled, appState.primarySelectedAssetID == targetID else { return }
+            guard !Task.isCancelled, appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else { return }
             self.beforeImage = rendered
             self.beforeAssetID = targetID
             self.beforeIdentity = identity
@@ -1371,17 +1390,40 @@ public struct LoupeView: View {
             return
         }
         let targetID = asset.id
+        let sourceRevision = appState.displaySourceRevision
+        displaySourceVersion = sourceRevision
+        displayIsCamera = appState.previewPolicy(for: asset, native: is100PercentZoom) == .cameraJPEG
+        beforeRenderTask?.cancel(); beforeImage = nil
+        appState.publishDisplayedBitmap(nil, assetID: nil, label: "")
         let frameTicket = InspectionLoadTransition.beginSelection(for: asset, display: &display)
         displayTicket = frameTicket
         isLoading = true
         startROIForeground(owner: frameTicket.uuidString)
+        if appState.previewPolicy(for: asset, native: is100PercentZoom) == .cameraJPEG {
+            // Deliberately ignore develop display settings; metadata remains untouched.
+            // Do not consult processed handoff caches, construct a RAW holder, or refine.
+            await PreviewPreloader.shared.foregroundSelectionStarted(targetID)
+            let image = await ThumbnailLoader.shared.loadCameraPreview(for: asset, maxPixelSize: 1600)
+            guard !Task.isCancelled, loadRevision.accepts(ticket),
+                  appState.displaySourceRevision == sourceRevision,
+                  appState.primarySelectedAssetID == targetID,
+                  appState.workspaceMode == .library, !is100PercentZoom else { return }
+            display.accept(image, assetID: targetID, filename: asset.filename, pixels: image?.size ?? .zero,
+                native: false, ticket: frameTicket,
+                developSettingsIdentity: ProcessedROIRequest.settingsIdentity(activeXMP(for: asset)), accurate: false)
+            isLoading = false
+            imageError = image == nil ? "Camera JPEG unavailable. Open Develop for accurate RAW." : nil
+            finishROIForeground(owner: frameTicket.uuidString)
+            await PreviewPreloader.shared.foregroundSelectionCompleted(targetID)
+            return
+        }
         if let ready = InspectionReadyFrameHandoff.current(for: asset, xmp: activeXMP(for: asset), display: display,
             zoomed: is100PercentZoom, center: inspection.center, viewport: viewportPixels, backing: backingScale,
             allowROI: roiPrototypeEnabled) {
             display.accept(ready.image, assetID: targetID, filename: asset.filename,
                 pixels: ready.sourceRect?.size ?? ready.image.size, native: ready.native, ticket: frameTicket,
                 sourceRect: ready.sourceRect, fullExtent: ready.fullExtent,
-                developSettingsIdentity: ProcessedROIRequest.settingsIdentity(activeXMP(for: asset)))
+                developSettingsIdentity: ProcessedROIRequest.settingsIdentity(activeXMP(for: asset)), accurate: ready.native)
             if ready.native { isLoading = false }
             InspectionTrace.event("ready.consumer.first_frame_\(ready.provenance)")
         } else {
@@ -1400,12 +1442,12 @@ public struct LoupeView: View {
             } else {
                 thumb = await ThumbnailLoader.shared.loadThumbnail(for: thumbnailAsset, maxPixelSize: 1600)
             }
-            guard !Task.isCancelled, loadRevision.accepts(ticket), appState.primarySelectedAssetID == targetID,
+            guard !Task.isCancelled, loadRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID,
                   holderAssetID != targetID, (!is100PercentZoom || display.image == nil),
                   ProcessedROIRequest.settingsIdentity(activeXMP(for: asset)) == ProcessedROIRequest.settingsIdentity(thumbnailSettings) else { return }
             if let thumb {
                 display.accept(thumb, assetID: targetID, filename: asset.filename, pixels: thumb.size, native: false, ticket: frameTicket,
-                    developSettingsIdentity: ProcessedROIRequest.settingsIdentity(thumbnailSettings))
+                    developSettingsIdentity: ProcessedROIRequest.settingsIdentity(thumbnailSettings), accurate: false)
             }
         }
         defer { thumbnailTask.cancel() }
@@ -1441,14 +1483,14 @@ public struct LoupeView: View {
                 var holderXMP = activeXMP(for: asset)
                 var settingsChangedDuringWarmup = false
                 var holder = await RAWImageLoader.shared.loadBaseHolder(from: asset.fileURL, xmp: holderXMP)
-                guard !Task.isCancelled, loadRevision.accepts(ticket), appState.primarySelectedAssetID == targetID else { return }
+                guard !Task.isCancelled, loadRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else { return }
                 // Develop edits can change while the holder decode is suspended. Keep the holder
                 // and any Fit render aligned with the latest active settings.
                 while ProcessedROIRequest.settingsIdentity(activeXMP(for: asset)) != ProcessedROIRequest.settingsIdentity(holderXMP) {
                     settingsChangedDuringWarmup = true
                     holderXMP = activeXMP(for: asset)
                     holder = await RAWImageLoader.shared.loadBaseHolder(from: asset.fileURL, xmp: holderXMP)
-                    guard !Task.isCancelled, loadRevision.accepts(ticket), appState.primarySelectedAssetID == targetID else { return }
+                    guard !Task.isCancelled, loadRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else { return }
                 }
                 guard let holder else {
                     guard cachedROITransition.baseHolderFailed() == .loadFullFitPreview else {
@@ -1456,7 +1498,7 @@ public struct LoupeView: View {
                         return
                     }
                     let preview = await ThumbnailLoader.shared.loadThumbnail(for: asset, maxPixelSize: 1600)
-                    guard !Task.isCancelled, loadRevision.accepts(ticket), appState.primarySelectedAssetID == targetID,
+                    guard !Task.isCancelled, loadRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID,
                           let preview else {
                         if loadRevision.accepts(ticket) { imageError = "Unable to load a full preview for \(asset.filename)."; isLoading = false }
                         await PreviewPreloader.shared.foregroundSelectionCompleted(targetID)
@@ -1495,7 +1537,7 @@ public struct LoupeView: View {
             activeXMP(for: asset)
         } ?? lookupXMP
         let holder = await RAWImageLoader.shared.loadBaseHolder(from: asset.fileURL, xmp: xmp)
-        guard !Task.isCancelled, loadRevision.accepts(ticket), appState.primarySelectedAssetID == targetID else { return }
+        guard !Task.isCancelled, loadRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else { return }
         currentBaseHolder = holder
         holderAssetID = targetID
         guard holder != nil else {
@@ -1525,6 +1567,8 @@ public struct LoupeView: View {
     }
 
     private func updateProcessedImage(with xmp: XMPMetadata?) {
+        guard appState.workspaceMode == .develop || is100PercentZoom, displaySourceVersion == appState.displaySourceRevision else { return }
+        let sourceRevision = appState.displaySourceRevision
         let ticket = renderRevision.next()
         LiveDevelopPreviewEngine.shared.cancelPending()
         InspectionTrace.event("render.revision_issued", state: inspection, requestID: ticket, highFrequency: true)
@@ -1572,7 +1616,7 @@ public struct LoupeView: View {
             LiveDevelopPreviewEngine.shared.requestRender(
                 baseHolder: holder, cameraModel: model, xmp: renderXMP, interactive: true
             ) { result in
-                guard renderRevision.accepts(ticket), appState.primarySelectedAssetID == targetID else {
+                guard renderRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else {
                     InspectionTrace.event("render.publication_rejected_stale")
                     return
                 }
@@ -1630,14 +1674,14 @@ public struct LoupeView: View {
                 interactive: false, fullResolution: native, sourceRect: roiRect
             ) { result in
                 InspectionTrace.event("render.completion_callback", state: inspection, requestID: ticket)
-                guard renderRevision.accepts(ticket), appState.primarySelectedAssetID == targetID else {
+                guard renderRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else {
                     InspectionTrace.event("render.publication_rejected_stale")
                     return
                 }
                 InspectionTrace.event("render.publication_accepted", state: inspection, requestID: ticket)
                 if result == nil, roiRect != nil {
                     LiveDevelopPreviewEngine.shared.requestRender(baseHolder: fresh, cameraModel: model, xmp: renderXMP, interactive: false, fullResolution: true) { fallback in
-                        guard renderRevision.accepts(ticket), appState.primarySelectedAssetID == targetID else { return }
+                        guard renderRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else { return }
                         display.accept(fallback, assetID: targetID, filename: asset.filename, pixels: fresh.fullExtent.size,
                             native: true, ticket: displayTicket, fullExtent: fresh.fullExtent,
                             developSettingsIdentity: renderSettingsIdentity)

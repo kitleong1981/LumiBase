@@ -3,6 +3,13 @@ import AppKit
 import CoreImage
 import ImageIO
 
+private final class CameraPreviewCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+}
+
 /// High-performance thumbnail extractor utilizing ImageIO embedded JPEG previews
 public actor ThumbnailLoader {
     public static let shared = ThumbnailLoader()
@@ -67,6 +74,56 @@ public actor ThumbnailLoader {
         return result
     }
     
+    /// Camera-preview-only path. RAW never uses CreateThumbnailFromImageAlways or a
+    /// CIRAWFilter fallback: absence of an embedded JPEG is an explicit unavailable state.
+    public func loadCameraPreview(for asset: PhotoAsset, maxPixelSize: Int = 1600) async -> NSImage? {
+        guard !Task.isCancelled else { return nil }
+        let versions = ([asset.fileURL] + asset.companionURLs).map { url in
+            // URL.resourceValues can retain an old stat across in-place companion edits.
+            let info = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let modified = (info?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
+            let size = (info?[.size] as? NSNumber)?.int64Value ?? 0
+            return "\(url.standardizedFileURL.path):\(modified):\(size)"
+        }.joined(separator: "|")
+        let key = cache.cacheKey(for: asset.fileURL, maxPixelSize: maxPixelSize,
+            dateModified: asset.dateModified, developTag: "camera-jpeg-only-v2|" + versions)
+        if let image = cache.image(forKey: key) { return image }
+        let cancellation = CameraPreviewCancellation()
+        let image: NSImage? = await withTaskCancellationHandler {
+          await withCheckedContinuation { continuation in
+            Self.decodeQueue.async {
+                guard !cancellation.isCancelled else { continuation.resume(returning: nil); return }
+                let result: NSImage? = autoreleasepool {
+                    func extract(_ url: URL, embeddedOnly: Bool) -> NSImage? {
+                        let options: [CFString: Any] = [
+                            kCGImageSourceShouldCache: false,
+                            kCGImageSourceCreateThumbnailFromImageAlways: !embeddedOnly,
+                            kCGImageSourceCreateThumbnailFromImageIfAbsent: !embeddedOnly,
+                            kCGImageSourceCreateThumbnailWithTransform: true,
+                            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize]
+                        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+                              let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+                        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+                    }
+                    if let embedded = extract(asset.fileURL, embeddedOnly: asset.isRaw) { return embedded }
+                    // FolderScanner's pair plus matching basename is required. Arbitrary
+                    // neighboring JPEGs cannot stand in for a missing RAW preview.
+                    for url in asset.companionURLs where ["jpg", "jpeg"].contains(url.pathExtension.lowercased()) &&
+                        url.deletingPathExtension().lastPathComponent == asset.fileURL.deletingPathExtension().lastPathComponent &&
+                        url.deletingLastPathComponent() == asset.fileURL.deletingLastPathComponent() {
+                        if let image = extract(url, embeddedOnly: false) { return image }
+                    }
+                    return nil
+                }
+                continuation.resume(returning: result)
+            }
+          }
+        } onCancel: { cancellation.cancel() }
+        guard !Task.isCancelled else { return nil }
+        if let image { cache.store(image: image, forKey: key) }
+        return image
+    }
+
     /// Synchronously creates a thumbnail from disk using CIRAWFilter draft mode (for exact preview match) or ImageIO
     private nonisolated static func createThumbnail(for asset: PhotoAsset, maxPixelSize: Int) -> NSImage? {
         // 1. For RAW assets with develop edits, use CIRAWFilter draft mode to get identical color science as Loupe View

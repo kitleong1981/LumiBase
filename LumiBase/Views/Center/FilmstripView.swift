@@ -169,8 +169,8 @@ private struct FilmstripItemView: View {
             
             // Flags & ratings overlay
             HStack(spacing: 3) {
-                if asset.xmp.isLoadedFromSidecar {
-                    Text("XMP")
+                if asset.xmp.isLoadedFromSidecar || asset.xmp.hasDevelopEdits {
+                    Text(asset.xmp.hasDevelopEdits ? "Edited" : "XMP")
                         .font(.system(size: 6, weight: .bold))
                         .foregroundColor(.green)
                         .padding(.horizontal, 2)
@@ -208,7 +208,8 @@ private struct FilmstripItemView: View {
             onSelect(isToggle, isRange)
         }
         .task(id: asset.id) {
-            let loaded = await ThumbnailLoader.shared.loadThumbnail(for: asset, maxPixelSize: 180)
+            let loaded = await ThumbnailLoader.shared.loadCameraPreview(for: asset, maxPixelSize: 180)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 self.thumbnail = loaded
             }

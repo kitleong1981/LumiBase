@@ -46,7 +46,13 @@ public struct GridView: View {
                                         case .reject: nextFlag = .unflagged
                                         }
                                         appState.setFlag(nextFlag)
-                                    }
+                                    },
+                                    onPreview: { image in
+                                        guard appState.viewMode == .grid, appState.primarySelectedAssetID == asset.id else { return }
+                                        appState.publishDisplayedBitmap(image, assetID: asset.id,
+                                            label: "JPEG • grid camera preview (not RAW clipping)", accurate: false)
+                                    },
+                                    sourceRevision: appState.displaySourceRevision
                                 )
                                 .id(asset.id)
                                 .contextMenu {

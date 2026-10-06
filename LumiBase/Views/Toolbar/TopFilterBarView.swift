@@ -7,6 +7,12 @@ public struct TopFilterBarView: View {
     
     public var body: some View {
         HStack(spacing: 16) {
+            Picker("Workspace", selection: $appState.workspaceMode) {
+                ForEach(WorkspaceMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 160)
+            .help("Library: camera JPEG, edits retained but not displayed. Develop: accurate RAW + edits.")
             // Search Input
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -125,6 +131,10 @@ public struct TopFilterBarView: View {
                 flagFilterButton(flag: .unflagged, icon: "circle.dashed", color: LightroomTheme.textMuted, title: "Filter Unflagged (U)")
             }
             
+            if !appState.deletingAssetIDs.isEmpty {
+                Text("Trash: \(appState.deletingAssetIDs.count) pending")
+                    .font(.system(size: 10)).foregroundColor(.orange)
+            }
             Spacer()
             
             // Reset Filters Button

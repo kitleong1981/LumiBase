@@ -1,4 +1,21 @@
 import Foundation
+
+/// Opt-in read-only work counters for fixture/performance evidence; off in the app.
+enum ImageWorkDiagnostics {
+    private final class Storage: @unchecked Sendable {
+        let lock = NSLock()
+        var enabled = false
+        var counts: [String: Int] = [:]
+    }
+    private static let storage = Storage()
+    static func start() { storage.lock.lock(); defer { storage.lock.unlock() }; storage.enabled = true; storage.counts = [:] }
+    static func stop() { storage.lock.lock(); defer { storage.lock.unlock() }; storage.enabled = false }
+    static func record(_ key: String) {
+        storage.lock.lock(); defer { storage.lock.unlock() }
+        if storage.enabled { storage.counts[key, default: 0] += 1 }
+    }
+    static func snapshot() -> [String: Int] { storage.lock.lock(); defer { storage.lock.unlock() }; return storage.counts }
+}
 import AppKit
 import CoreImage
 import ImageIO
@@ -98,6 +115,7 @@ public final class RAWImageLoader: @unchecked Sendable {
     /// Asynchronously decodes and retrieves the base neutral CIImage holder (with full, display, and interactive proxies)
     public func loadBaseHolder(from url: URL, xmp: XMPMetadata? = nil, useSharedCache: Bool = true,
                                priority: TaskPriority = .userInitiated) async -> BaseImageHolder? {
+        ImageWorkDiagnostics.record("sourceLoad")
         let settings = RAWDecodeSettings(xmp)
         if useSharedCache, let cached = getCached(for: url, settings: settings) { return cached }
         guard !Task.isCancelled else { return nil }
@@ -246,6 +264,7 @@ public final class RAWImageLoader: @unchecked Sendable {
         isCurrent: () -> Bool = { true }
     ) -> NSImage? {
         guard isCurrent(), !fullResolution || baseHolder.supportsNativeInspection else { return nil }
+        ImageWorkDiagnostics.record("processedRender")
         let targetBase = fullResolution ? baseHolder.full : (interactive ? baseHolder.interactive : baseHolder.display)
         let targetExtent = fullResolution ? baseHolder.fullExtent : (interactive ? baseHolder.interactiveExtent : baseHolder.displayExtent)
         

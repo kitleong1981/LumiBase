@@ -64,21 +64,32 @@ public struct RightInspectorView: View {
                     
                     // 1. Histogram Section
                     collapsibleSection(title: "HISTOGRAM", isExpanded: $isHistogramExpanded) {
-                        HistogramView(asset: appState.primarySelectedAsset)
+                        Toggle("Histogram", isOn: $appState.isHistogramEnabled)
+                            .padding(.horizontal, 10)
+                        if appState.isHistogramEnabled {
+                            HistogramView(asset: appState.primarySelectedAsset, histogram: appState.displayHistogram)
+                        }
                     }
                     
                     Divider().background(LightroomTheme.dividerColor)
                     
+                    if appState.workspaceMode == .library {
+                        Text("Camera preview (JPEG)\nDevelop edits are retained, not displayed.")
+                            .font(.system(size: 11)).padding(.horizontal, 10)
+                        Button("Open Develop for editing") { appState.workspaceMode = .develop; appState.viewMode = .loupe }
+                    }
                     if let asset = appState.primarySelectedAsset {
                         if appState.activeDevelopTool == .crop {
                             // 2a. Crop & Rotate Tool Panel Section
                             collapsibleSection(title: "CROP & STRAIGHTEN", isExpanded: $isDevelopExpanded, badge: asset.xmp.hasCrop ? "Active" : nil) {
                                 CropControlPanelView(asset: asset, appState: appState)
+                                    .disabled(appState.workspaceMode != .develop)
                             }
                         } else {
                             // 2b. Develop (Basic) Panel Section
                             collapsibleSection(title: "BASIC (DEVELOP)", isExpanded: $isDevelopExpanded, badge: asset.xmp.hasDevelopEdits ? "Active" : nil) {
                                 DevelopBasicPanelView(asset: asset, appState: appState)
+                                    .disabled(appState.workspaceMode != .develop)
                             }
                         }
                         
@@ -111,7 +122,7 @@ public struct RightInspectorView: View {
             
             // Bottom Develop Actions Bar (Copy / Paste / Sync / Auto Sync)
             Divider().background(LightroomTheme.dividerColor)
-            developFooterBar
+            developFooterBar.disabled(appState.workspaceMode != .develop)
         }
         .frame(minWidth: 240, idealWidth: 280, maxWidth: 360)
         .background(LightroomTheme.panelBackground)

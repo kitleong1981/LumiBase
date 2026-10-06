@@ -87,6 +87,7 @@ public struct BottomControlsBarView: View {
                         .cornerRadius(4)
                     }
                     .menuStyle(.borderlessButton)
+                    .disabled(appState.workspaceMode != .develop)
                     .help("Before / After Comparison View (Y / \\)")
                 }
             }

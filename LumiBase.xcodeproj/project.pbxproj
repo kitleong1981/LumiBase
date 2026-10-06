@@ -521,7 +521,7 @@
 				CODE_SIGN_ENTITLEMENTS = LumiBase/Resources/LumiBase.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1.13.2;
+				CURRENT_PROJECT_VERSION = 1.14.0;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -531,9 +531,9 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.13.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lumibase.LumiBase.Inspection.ROI;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				MARKETING_VERSION = 1.14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lumibase.LumiBase.FastLibrary;
+				PRODUCT_NAME = "LumiBase Fast Library";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -547,7 +547,7 @@
 				CODE_SIGN_ENTITLEMENTS = LumiBase/Resources/LumiBase.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1.13.2;
+				CURRENT_PROJECT_VERSION = 1.14.0;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -557,9 +557,9 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.13.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.lumibase.LumiBase.Inspection.ROI;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				MARKETING_VERSION = 1.14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lumibase.LumiBase.FastLibrary;
+				PRODUCT_NAME = "LumiBase Fast Library";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};

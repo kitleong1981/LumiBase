@@ -11,6 +11,8 @@ public struct PhotoGridItemView: View {
     public let onDoubleClick: () -> Void
     public let onRatingChange: (Int) -> Void
     public let onFlagToggle: () -> Void
+    public var onPreview: (NSImage?) -> Void = { _ in }
+    public var sourceRevision: UInt64 = 0
     
     @State private var thumbnail: NSImage?
     @State private var isLoading: Bool = true
@@ -57,9 +59,9 @@ public struct PhotoGridItemView: View {
                             .cornerRadius(2)
                     }
                     
-                    if asset.xmp.isLoadedFromSidecar {
+                    if asset.xmp.isLoadedFromSidecar || asset.xmp.hasDevelopEdits {
                         HStack(spacing: 2) {
-                            Text("XMP")
+                            Text(asset.xmp.hasDevelopEdits ? "Edited" : "XMP")
                                 .font(.system(size: 8, weight: .bold))
                                 .foregroundColor(.white)
                             if asset.xmp.hasDevelopEdits {
@@ -128,6 +130,8 @@ public struct PhotoGridItemView: View {
                 onDoubleClick()
             }
         )
+        .onChange(of: sourceRevision) { _, _ in if isPrimary { onPreview(thumbnail) } }
+        .onChange(of: isPrimary) { _, primary in if primary { onPreview(thumbnail) } }
         .task(id: asset.id) {
             await loadThumbnail()
         }
@@ -136,8 +140,10 @@ public struct PhotoGridItemView: View {
     @MainActor
     private func loadThumbnail() async {
         isLoading = true
-        let loaded = await ThumbnailLoader.shared.loadThumbnail(for: asset, maxPixelSize: Int(size * 2))
+        let loaded = await ThumbnailLoader.shared.loadCameraPreview(for: asset, maxPixelSize: Int(size * 2))
+        guard !Task.isCancelled else { return }
         self.thumbnail = loaded
+        if isPrimary { onPreview(loaded) }
         self.isLoading = false
     }
 }
