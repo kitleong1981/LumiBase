@@ -10,6 +10,12 @@ private final class CameraPreviewCancellation: @unchecked Sendable {
     var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
 }
 
+private final class CameraNativeCache: @unchecked Sendable {
+    // NSCache is thread-safe; mutation is additionally confined to nativeQueue.
+    let images = NSCache<NSString, NSImage>()
+    init() { images.countLimit = 2; images.totalCostLimit = 512 * 1024 * 1024 }
+}
+
 /// High-performance thumbnail extractor utilizing ImageIO embedded JPEG previews
 public actor ThumbnailLoader {
     public static let shared = ThumbnailLoader()
@@ -122,6 +128,58 @@ public actor ThumbnailLoader {
         guard !Task.isCancelled else { return nil }
         if let image { cache.store(image: image, forKey: key) }
         return image
+    }
+
+    // Native camera pixels have a separate bounded memory-only cache and queue:
+    // foreground inspection must not sit behind hundreds of grid thumbnails.
+    private nonisolated static let nativeQueue = DispatchQueue(label: "com.lumibase.camera.native", qos: .userInitiated)
+    private nonisolated static let nativeCache = CameraNativeCache()
+
+    /// Native JPEG pixels only. Prefer the scanner's matching companion. An
+    /// embedded preview is accepted only if it matches the source dimensions;
+    /// a 1600px proxy is never advertised as native and RAW is never decoded.
+    public func loadNativeCameraJPEG(for asset: PhotoAsset) async -> NSImage? {
+        guard !Task.isCancelled else { return nil }
+        let cancellation = CameraPreviewCancellation()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.nativeQueue.async {
+                    let image: NSImage? = autoreleasepool {
+                        guard !cancellation.isCancelled else { return nil }
+                        let companions = asset.companionURLs.filter {
+                            ["jpg", "jpeg"].contains($0.pathExtension.lowercased()) &&
+                            $0.deletingPathExtension().lastPathComponent == asset.fileURL.deletingPathExtension().lastPathComponent &&
+                            $0.deletingLastPathComponent() == asset.fileURL.deletingLastPathComponent()
+                        }
+                        for url in companions + [asset.fileURL] {
+                            guard !cancellation.isCancelled else { return nil }
+                            let info = try? FileManager.default.attributesOfItem(atPath: url.path)
+                            let key = "native-jpeg-v1|\(url.path)|\((info?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)|\(info?[.size] as? NSNumber ?? 0)" as NSString
+                            if let cached = Self.nativeCache.images.object(forKey: key) { return cached }
+                            guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+                                  let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                                  let width = props[kCGImagePropertyPixelWidth] as? Int,
+                                  let height = props[kCGImagePropertyPixelHeight] as? Int, width > 0, height > 0 else { continue }
+                            let embeddedOnly = url == asset.fileURL && asset.isRaw
+                            let options: [CFString: Any] = [
+                                kCGImageSourceShouldCacheImmediately: true,
+                                kCGImageSourceCreateThumbnailFromImageAlways: !embeddedOnly,
+                                kCGImageSourceCreateThumbnailFromImageIfAbsent: !embeddedOnly,
+                                kCGImageSourceCreateThumbnailWithTransform: true,
+                                kCGImageSourceThumbnailMaxPixelSize: max(width, height)]
+                            guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+                                  max(cg.width, cg.height) == max(width, height),
+                                  min(cg.width, cg.height) == min(width, height), !cancellation.isCancelled else { continue }
+                            let result = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+                            Self.nativeCache.images.setObject(result, forKey: key, cost: cg.bytesPerRow * cg.height)
+                            return result
+                        }
+                        return nil
+                    }
+                    continuation.resume(returning: cancellation.isCancelled ? nil : image)
+                }
+            }
+        } onCancel: { cancellation.cancel() }
     }
 
     /// Synchronously creates a thumbnail from disk using CIRAWFilter draft mode (for exact preview match) or ImageIO

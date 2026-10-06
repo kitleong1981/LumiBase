@@ -48,13 +48,13 @@ public final class AppState: ObservableObject {
     }
     @Published public private(set) var displaySourceRevision: UInt64 = 0
     public func previewPolicy(for asset: PhotoAsset, native: Bool) -> DisplayPreviewPolicy {
-        workspaceMode == .library && !native ? .cameraJPEG : .accurate
+        workspaceMode == .library ? .cameraJPEG : .accurate
     }
     public func previewLabel(for asset: PhotoAsset, native: Bool) -> String {
         if previewPolicy(for: asset, native: native) == .cameraJPEG {
-            return "Camera preview (JPEG)" + (asset.xmp.hasDevelopEdits ? " • Edited — edits not displayed" : "")
+            return (native ? "Native JPEG 100%" : "Camera preview (JPEG)") + (asset.xmp.hasDevelopEdits ? " • Edited — edits not displayed" : "")
         }
-        return workspaceMode == .library ? "Native 100% • accurate RAW + edits" : "Develop • accurate + edits"
+        return "Develop • accurate RAW + edits"
     }
     public let displayHistogram = DisplayHistogramState()
     @Published public var isHistogramEnabled: Bool = UserDefaults.standard.bool(forKey: "displayHistogramEnabled") {
@@ -95,12 +95,12 @@ public final class AppState: ObservableObject {
     }
     // Current directory & assets
     @Published public var currentFolderURL: URL?
-    @Published public var allAssets: [PhotoAsset] = []
+    @Published public var allAssets: [PhotoAsset] = [] { didSet { invalidateCollection() } }
     @Published public var isScanning: Bool = false
     @Published public var scanProgressMessage: String = ""
     
     // Selection state
-    @Published public var selectedAssetIDs: Set<String> = []
+    @Published public var selectedAssetIDs: Set<String> = [] { didSet { selectedAssetsCache = nil } }
     @Published public var primarySelectedAssetID: String? {
         didSet { if oldValue != primarySelectedAssetID { displayedBitmap = nil; displayHistogram.clear() } }
     }
@@ -143,8 +143,8 @@ public final class AppState: ObservableObject {
     }
     @Published public var thumbnailSize: CGFloat = 220
     @Published public var gridColumnsCount: Int = 4
-    @Published public var filterCriteria: FilterCriteria = FilterCriteria()
-    @Published public var sortOrder: AssetSortOrder = .captureDateAscending
+    @Published public var filterCriteria: FilterCriteria = FilterCriteria() { didSet { invalidateCollection() } }
+    @Published public var sortOrder: AssetSortOrder = .captureDateAscending { didSet { invalidateCollection() } }
     
     // Sidebar foldout state
     @Published public var isLeftSidebarVisible: Bool = true
@@ -181,9 +181,9 @@ public final class AppState: ObservableObject {
     @Published public var showDeleteConfirmation: Bool = false
     @Published public var pendingDeleteAssets: [PhotoAsset] = []
     @Published public var deleteErrorMessage: String?
-    @Published public private(set) var deletingAssetIDs: Set<String> = []
+    @Published public private(set) var deletingAssetIDs: Set<String> = [] { didSet { invalidateCollection() } }
     private var trashTasks: [UUID: Task<Void, Never>] = [:]
-    private var trashedAssetIDs: Set<String> = []
+    private var trashedAssetIDs: Set<String> = [] { didSet { invalidateCollection() } }
     private var trashGroupMemberIDs: Set<String> = []
     private var failedTrashAssets: [String: PhotoAsset] = [:]
     private let fileMutationFence = FileMutationFence()
@@ -550,9 +550,18 @@ public final class AppState: ObservableObject {
     // MARK: - Computed Properties
     
     /// Filtered and sorted assets displayed in Grid / Loupe / Filmstrip
+    private var displayedAssetsCache: [PhotoAsset]?
+    private var selectedAssetsCache: [PhotoAsset]?
+    private func invalidateCollection() {
+        displayedAssetsCache = nil
+        selectedAssetsCache = nil
+    }
     public var displayedAssets: [PhotoAsset] {
+        if let cached = displayedAssetsCache { return cached }
         let filtered = allAssets.filter { !deletingAssetIDs.contains($0.id) && !trashedAssetIDs.contains($0.id) && filterCriteria.matches(asset: $0) }
-        return sortAssets(filtered, by: sortOrder)
+        let result = sortAssets(filtered, by: sortOrder)
+        displayedAssetsCache = result
+        return result
     }
     
     /// Only scroll to the explicit active photo when it is still in the visible collection.
@@ -589,7 +598,10 @@ public final class AppState: ObservableObject {
     }
     
     public var selectedAssets: [PhotoAsset] {
-        displayedAssets.filter { selectedAssetIDs.contains($0.id) }
+        if let cached = selectedAssetsCache { return cached }
+        let result = displayedAssets.filter { selectedAssetIDs.contains($0.id) }
+        selectedAssetsCache = result
+        return result
     }
     
     // MARK: - Folder Actions

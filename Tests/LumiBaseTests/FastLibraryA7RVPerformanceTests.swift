@@ -79,26 +79,41 @@ final class FastLibraryA7RVPerformanceTests: XCTestCase {
                 rows.append(row)
             }
         }
-        // Existing intentional Library 100% path must request native, never a zoomed JPEG.
+        // Library 100% now requests original companion JPEG pixels, never a zoomed proxy.
         state.workspaceMode = .library
         selectedID = assets[0].id; firstReady = nil; firstAccurate = nil
         state.selectAsset(assets[0]); try await Task.sleep(nanoseconds: 100_000_000)
         started = ProcessInfo.processInfo.systemUptime; firstReady = nil; firstAccurate = nil
         NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleZoom"), object: nil)
         let deadline = started + 8
-        while firstAccurate == nil && ProcessInfo.processInfo.systemUptime < deadline {
+        while !(state.displayedBitmap?.label.contains("native 100%") ?? false) && ProcessInfo.processInfo.systemUptime < deadline {
+            host.layoutSubtreeIfNeeded(); try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertNotNil(firstReady)
+        let nativeFrame = try XCTUnwrap(state.displayedBitmap)
+        XCTAssertFalse(nativeFrame.accurate)
+        let nativeCG = try XCTUnwrap(nativeFrame.image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        XCTAssertGreaterThan(nativeCG.width, 2560)
+        let nativeJPEGFirstReady = firstReady
+        // Staying zoomed while switching to Develop must replace JPEG with native
+        // accurate RAW; mode/source revision gates may not reuse the camera frame.
+        firstReady = nil; firstAccurate = nil
+        state.workspaceMode = .develop
+        let developDeadline = ProcessInfo.processInfo.systemUptime + 12
+        while firstAccurate == nil && ProcessInfo.processInfo.systemUptime < developDeadline {
             host.layoutSubtreeIfNeeded(); try await Task.sleep(nanoseconds: 1_000_000)
         }
         XCTAssertNotNil(firstAccurate)
-        let nativeFrame = try XCTUnwrap(state.displayedBitmap)
-        XCTAssertTrue(nativeFrame.accurate)
-        let nativeCG = try XCTUnwrap(nativeFrame.image.cgImage(forProposedRect: nil, context: nil, hints: nil))
-        XCTAssertGreaterThan(nativeCG.width, 2560)
+        let developedNative = try XCTUnwrap(state.displayedBitmap)
+        XCTAssertTrue(developedNative.accurate)
+        let developedCG = try XCTUnwrap(developedNative.image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        XCTAssertGreaterThan(developedCG.width, 2560)
         let output = ProcessInfo.processInfo.environment["LUMIBASE_FAST_EVIDENCE_PATH"] ?? inspectionTestScratchURL("fast-library-a7rv.json").path
         let evidence: [String: Any] = ["folder": folder.path, "rows": rows,
             "measurement": "Actual hosted Loupe SwiftUI onChange display bitmap publication; not compositor/display-present. OS cache not purged; thumbnail cache not cleared.",
             "histogramEnabled": false, "speculativeNeighborDecoder": "disabled for controlled comparison",
-            "nativeLibraryFirstAccurateMilliseconds": firstAccurate as Any,
+            "nativeLibraryFirstJPEGMilliseconds": nativeJPEGFirstReady as Any,
+            "developNativeBitmapWidth": developedCG.width, "developNativeBitmapHeight": developedCG.height,
             "nativeBitmapWidth": nativeCG.width, "nativeBitmapHeight": nativeCG.height]
         try JSONSerialization.data(withJSONObject: evidence, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: output))
         print("A7RV_FIRST_READY_EVIDENCE \(output) rows=\(rows.count)")

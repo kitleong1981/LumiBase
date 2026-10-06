@@ -11,7 +11,7 @@ final class FastLibraryTests: XCTestCase {
         let asset = PhotoAsset(fileURL: URL(fileURLWithPath: "/fixture/photo.arw"), xmp: xmp)
         XCTAssertEqual(state.previewPolicy(for: asset, native: false), .cameraJPEG)
         XCTAssertTrue(state.previewLabel(for: asset, native: false).contains("edits not displayed"))
-        XCTAssertEqual(state.previewPolicy(for: asset, native: true), .accurate)
+        XCTAssertEqual(state.previewPolicy(for: asset, native: true), .cameraJPEG)
         state.workspaceMode = .develop
         XCTAssertEqual(state.previewPolicy(for: asset, native: false), .accurate)
         XCTAssertEqual(asset.xmp.exposure2012, 2)
@@ -72,6 +72,59 @@ final class FastLibraryTests: XCTestCase {
         cancelled.cancel()
         let result = await cancelled.value
         XCTAssertNil(result)
+    }
+
+    @MainActor func testCollectionCacheTracksNestedMetadataFiltersSortAndSelection() {
+        let state = AppState(preloader: PreviewPreloader(observeMemoryPressure: false))
+        let a = PhotoAsset(fileURL: URL(fileURLWithPath: "/fixture/a.jpg"))
+        let b = PhotoAsset(fileURL: URL(fileURLWithPath: "/fixture/b.jpg"))
+        state.allAssets = [a, b]; state.sortOrder = .filenameAscending
+        XCTAssertEqual(state.displayedAssets.map(\.id), [a.id, b.id])
+        state.selectedAssetIDs = [a.id]
+        XCTAssertEqual(state.selectedAssets.map(\.id), [a.id])
+        state.selectedAssetIDs = [b.id]
+        XCTAssertEqual(state.selectedAssets.map(\.id), [b.id])
+        state.allAssets[1].xmp.rating = 5
+        state.filterCriteria.minimumRating = 5
+        XCTAssertEqual(state.displayedAssets.map(\.id), [b.id])
+        state.allAssets[0].xmp.rating = 5
+        XCTAssertEqual(state.displayedAssets.map(\.id), [a.id, b.id])
+        state.sortOrder = .filenameDescending
+        XCTAssertEqual(state.displayedAssets.map(\.id), [b.id, a.id])
+        state.allAssets.removeLast()
+        XCTAssertEqual(state.displayedAssets.map(\.id), [a.id])
+        XCTAssertTrue(state.selectedAssets.isEmpty)
+    }
+
+    @MainActor func testNativeCameraJPEGUsesRealCompanionPixelsAndRejectsUnpairedFile() async throws {
+        let root = inspectionTestScratchURL("native-camera-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let raw = root.appendingPathComponent("camera.arw")
+        let jpg = root.appendingPathComponent("camera.jpg")
+        try Data("not RAW".utf8).write(to: raw)
+        func writeJPEG(_ width: Int) throws {
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: 24,
+                bitsPerSample: 8, samplesPerPixel: 3, hasAlpha: false, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            try XCTUnwrap(bitmap.representation(using: .jpeg, properties: [:])).write(to: jpg)
+        }
+        try writeJPEG(64)
+        let asset = PhotoAsset(fileURL: raw, companionURLs: [jpg])
+        let first = await ThumbnailLoader.shared.loadNativeCameraJPEG(for: asset)
+        XCTAssertEqual(first?.size.width, 64)
+        try writeJPEG(96)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 10)], ofItemAtPath: jpg.path)
+        let changed = await ThumbnailLoader.shared.loadNativeCameraJPEG(for: asset)
+        XCTAssertEqual(changed?.size.width, 96)
+        let other = PhotoAsset(fileURL: root.appendingPathComponent("different.arw"), companionURLs: [jpg])
+        let rejected = await ThumbnailLoader.shared.loadNativeCameraJPEG(for: other)
+        XCTAssertNil(rejected)
+        let task = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            return await ThumbnailLoader.shared.loadNativeCameraJPEG(for: asset)
+        }
+        task.cancel(); let cancelled = await task.value
+        XCTAssertNil(cancelled)
     }
 
     @MainActor func testCancelledHistogramDoesNotStartBins() async {

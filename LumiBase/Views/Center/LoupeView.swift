@@ -376,6 +376,7 @@ struct InspectionSurface: NSViewRepresentable {
     var up: () -> Void
     var navigate: (Int) -> Void
     var backingChanged: (CGFloat) -> Void
+    var singleClickToggles = false
     func makeNSView(context: Context) -> Surface { Surface() }
     func updateNSView(_ view: Surface, context: Context) {
         view.owner = self
@@ -444,7 +445,8 @@ struct InspectionSurface: NSViewRepresentable {
             let toggle = doubleClickCandidate && shortClick
             endCapture()
             previousShortClick = shortClick && !toggle
-            if toggle { owner?.down(point, 2) }
+            if shortClick && owner?.singleClickToggles == true { owner?.down(point, 3) }
+            else if toggle { owner?.down(point, 2) }
             logger.debug("release short=\(shortClick) persistentToggle=\(toggle)")
         }
 
@@ -523,7 +525,7 @@ public struct LoupeView: View {
     @ObservedObject var appState: AppState
     private var displayForSelectedAsset: InspectionDisplay {
         display.owns(assetID: appState.primarySelectedAssetID) && displaySourceVersion == appState.displaySourceRevision &&
-            displayIsCamera == (appState.workspaceMode == .library && !is100PercentZoom) ? display : InspectionDisplay()
+            displayIsCamera == (appState.workspaceMode == .library) ? display : InspectionDisplay()
     }
     
     @State private var display = InspectionDisplay()
@@ -796,7 +798,15 @@ public struct LoupeView: View {
                         InspectionSurface(
                             down: { point, count in
                                 Logger(subsystem: "com.lumibase.inspection", category: "state").debug("intent count=\(count) loading=\(isLoading) nativeFrame=\(display.native) hasFrame=\(display.image != nil) error=\(imageError != nil)")
-                                if count == 2 { inspection.end(); toggleZoom() }
+                                if appState.workspaceMode == .library {
+                                    if count == 3 {
+                                        // Toggle only a completed short click. A held drag
+                                        // pans at native pixels without toggling back to Fit.
+                                        inspection.persistent.toggle()
+                                    } else if count == 1 {
+                                        inspection.begin(at: point, pixels: pixels, viewport: viewportSize)
+                                    }
+                                } else if count == 2 { inspection.end(); toggleZoom() }
                                 else if showingHandoffProxy {
                                     inspection.held = true
                                 } else {
@@ -818,7 +828,8 @@ public struct LoupeView: View {
                                 if roiPrototypeEnabled, inspection.zoomed, let asset = appState.primarySelectedAsset {
                                     updateProcessedImage(with: activeXMP(for: asset))
                                 }
-                            }
+                            },
+                            singleClickToggles: appState.workspaceMode == .library
                         )
                     }
 
@@ -960,7 +971,7 @@ public struct LoupeView: View {
                             .cornerRadius(4)
                         }
                         .buttonStyle(.plain)
-                        .help("Toggle Zoom 100% / Fit (Z / Double-Click)")
+                        .help("Toggle Zoom 100% / Fit (Library: click; Develop: hold / double-click; Z)")
 
                         Button {
                             roiPrototypeToggle.toggle()
@@ -1222,7 +1233,7 @@ public struct LoupeView: View {
         }
          .onChange(of: display.image.map(ObjectIdentifier.init)) { _, _ in
             appState.publishDisplayedBitmap(display.image, assetID: display.assetID,
-                label: display.accurate ? "Developed display bitmap" : (displayIsCamera ? "JPEG • camera preview (not RAW clipping)" : "Preview • preparing accurate display"),
+                label: display.accurate ? "Developed display bitmap" : (displayIsCamera ? (display.native ? "JPEG • native 100% (not developed RAW)" : "JPEG • camera preview (not RAW clipping)") : "Preview • preparing accurate display"),
                 accurate: display.accurate, allowPreviewHistogram: displayIsCamera && !is100PercentZoom)
         }
         .task(id: "\(appState.primarySelectedAssetID ?? "")|\(appState.primarySelectedAsset?.dateModified.timeIntervalSinceReferenceDate ?? 0)|\(appState.primarySelectedAsset?.fileSize ?? 0)|\(appState.displaySourceRevision)|\(appState.workspaceMode == .library && is100PercentZoom)") {
@@ -1403,16 +1414,18 @@ public struct LoupeView: View {
             // Deliberately ignore develop display settings; metadata remains untouched.
             // Do not consult processed handoff caches, construct a RAW holder, or refine.
             await PreviewPreloader.shared.foregroundSelectionStarted(targetID)
-            let image = await ThumbnailLoader.shared.loadCameraPreview(for: asset, maxPixelSize: 1600)
+            let native = is100PercentZoom
+            let image = native ? await ThumbnailLoader.shared.loadNativeCameraJPEG(for: asset)
+                : await ThumbnailLoader.shared.loadCameraPreview(for: asset, maxPixelSize: 1600)
             guard !Task.isCancelled, loadRevision.accepts(ticket),
                   appState.displaySourceRevision == sourceRevision,
                   appState.primarySelectedAssetID == targetID,
-                  appState.workspaceMode == .library, !is100PercentZoom else { return }
+                  appState.workspaceMode == .library, is100PercentZoom == native else { return }
             display.accept(image, assetID: targetID, filename: asset.filename, pixels: image?.size ?? .zero,
-                native: false, ticket: frameTicket,
+                native: native, ticket: frameTicket,
                 developSettingsIdentity: ProcessedROIRequest.settingsIdentity(activeXMP(for: asset)), accurate: false)
             isLoading = false
-            imageError = image == nil ? "Camera JPEG unavailable. Open Develop for accurate RAW." : nil
+            imageError = image == nil ? (native ? "Native JPEG unavailable. Choose Fit or Develop for RAW 100%." : "Camera JPEG unavailable. Open Develop for accurate RAW.") : nil
             finishROIForeground(owner: frameTicket.uuidString)
             await PreviewPreloader.shared.foregroundSelectionCompleted(targetID)
             return
