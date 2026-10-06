@@ -973,76 +973,78 @@ public struct LoupeView: View {
                         .buttonStyle(.plain)
                         .help("Toggle Zoom 100% / Fit (Library: click; Develop: hold / double-click; Z)")
 
-                        Button {
-                            roiPrototypeToggle.toggle()
-                            if !roiPrototypeEnabled { InspectionFrameLayout.disableROI(display: &display) }
-                            if let asset = appState.primarySelectedAsset { updateProcessedImage(with: activeXMP(for: asset)) }
-                        } label: {
-                            Text(roiPrototypeEnabled ? "ROI ON · EXP" : "ROI OFF · EXP")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(roiPrototypeEnabled ? .black : LightroomTheme.accentYellow)
-                                .padding(.horizontal, 7).padding(.vertical, 4)
-                                .background(roiPrototypeEnabled ? LightroomTheme.accentYellow : Color.black.opacity(0.6))
-                                .cornerRadius(4)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Toggle Region-Of-Interest 100% Native Rendering")
-                        
-                        // Before / After Comparison Menu Button
-                        Menu {
+                        if appState.workspaceMode == .develop {
                             Button {
-                                appState.comparisonMode = .off
-                                appState.isBeforeToggled = false
+                                roiPrototypeToggle.toggle()
+                                if !roiPrototypeEnabled { InspectionFrameLayout.disableROI(display: &display) }
+                                if let asset = appState.primarySelectedAsset { updateProcessedImage(with: activeXMP(for: asset)) }
                             } label: {
-                                Text("Single Image (After)")
-                            }
-                            Button {
-                                appState.toggleBeforeAfter()
-                            } label: {
-                                Text("Toggle Before / After")
-                            }
-                            .keyboardShortcut("\\", modifiers: [])
-                            
-                            Divider()
-                            
-                            Button {
-                                appState.comparisonMode = .splitLeftRight
-                                appState.isBeforeToggled = false
-                            } label: {
-                                Text("Left / Right Split")
-                            }
-                            .keyboardShortcut("y", modifiers: [])
-                            
-                            Button {
-                                appState.comparisonMode = .sideBySide
-                                appState.isBeforeToggled = false
-                            } label: {
-                                Text("Side-by-Side")
-                            }
-                            .keyboardShortcut("y", modifiers: .shift)
-                            
-                            Button {
-                                appState.comparisonMode = .splitTopBottom
-                                appState.isBeforeToggled = false
-                            } label: {
-                                Text("Top / Bottom Split")
-                            }
-                        } label: {
-                            HStack(spacing: 3) {
-                                Image(systemName: appState.comparisonMode == .off ? (appState.isBeforeToggled ? "clock.arrow.circlepath" : "rectangle.split.2x1") : appState.comparisonMode.iconName)
-                                    .font(.system(size: 10))
-                                Text(appState.comparisonMode == .off ? (appState.isBeforeToggled ? "BEFORE" : "B/A") : (appState.comparisonMode == .splitLeftRight ? "SPLIT" : (appState.comparisonMode == .sideBySide ? "2-UP" : "TOP/BOT")))
+                                Text(roiPrototypeEnabled ? "ROI ON · EXP" : "ROI OFF · EXP")
                                     .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(roiPrototypeEnabled ? .black : LightroomTheme.accentYellow)
+                                    .padding(.horizontal, 7).padding(.vertical, 4)
+                                    .background(roiPrototypeEnabled ? LightroomTheme.accentYellow : Color.black.opacity(0.6))
+                                    .cornerRadius(4)
                             }
-                            .foregroundColor((appState.comparisonMode != .off || appState.isBeforeToggled) ? .black : LightroomTheme.accentYellow)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background((appState.comparisonMode != .off || appState.isBeforeToggled) ? LightroomTheme.accentYellow : Color.black.opacity(0.6))
-                            .cornerRadius(4)
-                        }
-                        .menuStyle(.borderlessButton)
-                        .help("Before / After Comparison View (Y / \\)")
+                            .buttonStyle(.plain)
+                            .help("Toggle Region-Of-Interest 100% Native Rendering")
+
+                            // Before / After Comparison Menu Button
+                            Menu {
+                                Button {
+                                    appState.comparisonMode = .off
+                                    appState.isBeforeToggled = false
+                                } label: {
+                                    Text("Single Image (After)")
+                                }
+                                Button {
+                                    appState.toggleBeforeAfter()
+                                } label: {
+                                    Text("Toggle Before / After")
+                                }
+                                .keyboardShortcut("\\", modifiers: [])
+                            
+                                Divider()
+                            
+                                Button {
+                                    appState.comparisonMode = .splitLeftRight
+                                    appState.isBeforeToggled = false
+                                } label: {
+                                    Text("Left / Right Split")
+                                }
+                                .keyboardShortcut("y", modifiers: [])
+                            
+                                Button {
+                                    appState.comparisonMode = .sideBySide
+                                    appState.isBeforeToggled = false
+                                } label: {
+                                    Text("Side-by-Side")
+                                }
+                                .keyboardShortcut("y", modifiers: .shift)
+                            
+                                Button {
+                                    appState.comparisonMode = .splitTopBottom
+                                    appState.isBeforeToggled = false
+                                } label: {
+                                    Text("Top / Bottom Split")
+                                }
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: appState.comparisonMode == .off ? (appState.isBeforeToggled ? "clock.arrow.circlepath" : "rectangle.split.2x1") : appState.comparisonMode.iconName)
+                                        .font(.system(size: 10))
+                                    Text(appState.comparisonMode == .off ? (appState.isBeforeToggled ? "BEFORE" : "B/A") : (appState.comparisonMode == .splitLeftRight ? "SPLIT" : (appState.comparisonMode == .sideBySide ? "2-UP" : "TOP/BOT")))
+                                        .font(.system(size: 9, weight: .bold))
+                                }
+                                .foregroundColor((appState.comparisonMode != .off || appState.isBeforeToggled) ? .black : LightroomTheme.accentYellow)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 4)
+                                .background((appState.comparisonMode != .off || appState.isBeforeToggled) ? LightroomTheme.accentYellow : Color.black.opacity(0.6))
+                                .cornerRadius(4)
+                            }
+                            .menuStyle(.borderlessButton)
+                            .help("Before / After Comparison View (Y / \\)")
                         
+                        }
                         // Info Overlay Toggle Button
                         Button {
                             withAnimation(.easeInOut(duration: 0.15)) {

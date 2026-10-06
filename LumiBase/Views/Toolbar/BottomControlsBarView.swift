@@ -35,7 +35,7 @@ public struct BottomControlsBarView: View {
                 .buttonStyle(.plain)
                 .help("Loupe View (E)")
                 
-                if appState.viewMode == .loupe {
+                if appState.viewMode == .loupe && appState.workspaceMode == .develop {
                     Menu {
                         Button {
                             appState.comparisonMode = .off
@@ -87,7 +87,6 @@ public struct BottomControlsBarView: View {
                         .cornerRadius(4)
                     }
                     .menuStyle(.borderlessButton)
-                    .disabled(appState.workspaceMode != .develop)
                     .help("Before / After Comparison View (Y / \\)")
                 }
             }
