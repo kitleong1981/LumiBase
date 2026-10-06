@@ -241,6 +241,12 @@ struct InspectionDisplay {
         assetID = "legacy:\(filename)"
         return revision.next()
     }
+    mutating func beginCameraSelection(assetID: String, filename: String, preserveCurrent: Bool) -> UUID {
+        if preserveCurrent, owns(assetID: assetID), image != nil {
+            return revision.next()
+        }
+        return beginSelection(assetID: assetID, filename: filename)
+    }
     mutating func beginSelection(assetID: String, filename: String) -> UUID {
         let ticket = revision.next()
         self.assetID = assetID
@@ -377,6 +383,10 @@ struct InspectionSurface: NSViewRepresentable {
     var navigate: (Int) -> Void
     var backingChanged: (CGFloat) -> Void
     var singleClickToggles = false
+    // Native-host inspection of the exact image/spinner branches rendered above this surface.
+    var presentedAssetID: String?
+    var hasPresentedImage = false
+    var presentsSpinner = false
     func makeNSView(context: Context) -> Surface { Surface() }
     func updateNSView(_ view: Surface, context: Context) {
         view.owner = self
@@ -524,9 +534,14 @@ struct InspectionSurface: NSViewRepresentable {
 public struct LoupeView: View {
     @ObservedObject var appState: AppState
     private var displayForSelectedAsset: InspectionDisplay {
-        display.owns(assetID: appState.primarySelectedAssetID) && displaySourceVersion == appState.displaySourceRevision &&
-            displayIsCamera == (appState.workspaceMode == .library) ? display : InspectionDisplay()
+        let cameraVersionCurrent = appState.primarySelectedAsset.map { cameraAssetVersion($0) == displayCameraAssetVersion } ?? false
+        return display.owns(assetID: appState.primarySelectedAssetID) && displaySourceVersion == appState.displaySourceRevision &&
+            displayIsCamera == (appState.workspaceMode == .library) && (!displayIsCamera || cameraVersionCurrent) ? display : InspectionDisplay()
     }
+    private func cameraAssetVersion(_ asset: PhotoAsset) -> String {
+        "\(asset.dateModified.timeIntervalSinceReferenceDate)|\(asset.fileSize)|\(asset.companionURLs.map(\.path).joined(separator: "|"))"
+    }
+    @State private var displayCameraAssetVersion: String?
     
     @State private var display = InspectionDisplay()
     @State private var displaySourceVersion: UInt64 = 0
@@ -559,10 +574,15 @@ public struct LoupeView: View {
                 let visibleSettingsIdentity = appState.primarySelectedAsset.map { ProcessedROIRequest.settingsIdentity(activeXMP(for: $0)) }
                 let presentation = visibleDisplay.presentation(for: appState.primarySelectedAssetID, settingsIdentity: visibleSettingsIdentity)
                 let visibleImageIsCurrent = presentation.settingsCurrent
-                let selectedHandoff = (appState.workspaceMode == .library ? nil : appState.primarySelectedAsset).flatMap {
-                    InspectionReadyFrameHandoff.current(for: $0, xmp: activeXMP(for: $0), display: display,
-                    zoomed: inspection.zoomed, center: inspection.center, viewport: viewportPixels, backing: backingScale,
-                    allowROI: roiPrototypeEnabled)
+                let selectedHandoff: InspectionReadyFrameHandoff.Frame? = appState.primarySelectedAsset.flatMap { asset in
+                    if appState.workspaceMode == .library {
+                        guard let image = ThumbnailLoader.readyCameraPreview(for: asset) else { return nil }
+                        return InspectionReadyFrameHandoff.Frame(image: image, native: false, sourceRect: nil,
+                            fullExtent: .zero, provenance: inspection.zoomed ? "current-preview-native-pending" : "camera-preview")
+                    }
+                    return InspectionReadyFrameHandoff.current(for: asset, xmp: activeXMP(for: asset), display: display,
+                        zoomed: inspection.zoomed, center: inspection.center, viewport: viewportPixels, backing: backingScale,
+                        allowROI: roiPrototypeEnabled)
                 }
                 let showingHandoffProxy = !visibleImageIsCurrent && selectedHandoff != nil
                 let img = showingHandoffProxy ? selectedHandoff?.image : presentation.image
@@ -829,7 +849,10 @@ public struct LoupeView: View {
                                     updateProcessedImage(with: activeXMP(for: asset))
                                 }
                             },
-                            singleClickToggles: appState.workspaceMode == .library
+                            singleClickToggles: appState.workspaceMode == .library,
+                            presentedAssetID: img == nil ? nil : appState.primarySelectedAssetID,
+                            hasPresentedImage: img != nil,
+                            presentsSpinner: img == nil && (isLoading || visibleDisplay.image == nil && selectedHandoff == nil)
                         )
                     }
 
@@ -1257,6 +1280,7 @@ public struct LoupeView: View {
             }
         }
         .onDisappear {
+            cameraNeighborTask?.cancel()
             inspection.end()
             _ = loadRevision.next()
             _ = renderRevision.next()
@@ -1386,6 +1410,7 @@ public struct LoupeView: View {
     @MainActor
     private func loadSelectedImage() async {
         let ticket = loadRevision.next()
+        cameraNeighborTask?.cancel()
         _ = renderRevision.next()
         LiveDevelopPreviewEngine.shared.cancelPending()
         idleFullRenderTask?.cancel()
@@ -1404,17 +1429,27 @@ public struct LoupeView: View {
         }
         let targetID = asset.id
         let sourceRevision = appState.displaySourceRevision
+        let camera = appState.previewPolicy(for: asset, native: is100PercentZoom) == .cameraJPEG
+        let cameraVersion = cameraAssetVersion(asset)
+        let preserveCamera = camera && displayIsCamera && displaySourceVersion == sourceRevision && display.owns(assetID: targetID) && displayCameraAssetVersion == cameraVersion
+        displayCameraAssetVersion = cameraVersion
         displaySourceVersion = sourceRevision
-        displayIsCamera = appState.previewPolicy(for: asset, native: is100PercentZoom) == .cameraJPEG
+        displayIsCamera = camera
         beforeRenderTask?.cancel(); beforeImage = nil
-        appState.publishDisplayedBitmap(nil, assetID: nil, label: "")
-        let frameTicket = InspectionLoadTransition.beginSelection(for: asset, display: &display)
+        if !preserveCamera { appState.publishDisplayedBitmap(nil, assetID: nil, label: "") }
+        let frameTicket = camera
+            ? display.beginCameraSelection(assetID: targetID, filename: asset.filename, preserveCurrent: preserveCamera)
+            : InspectionLoadTransition.beginSelection(for: asset, display: &display)
         displayTicket = frameTicket
         isLoading = true
         startROIForeground(owner: frameTicket.uuidString)
         if appState.previewPolicy(for: asset, native: is100PercentZoom) == .cameraJPEG {
             // Deliberately ignore develop display settings; metadata remains untouched.
             // Do not consult processed handoff caches, construct a RAW holder, or refine.
+            if display.image == nil, let proxy = ThumbnailLoader.readyCameraPreview(for: asset) {
+                display.accept(proxy, assetID: targetID, filename: asset.filename, pixels: proxy.size,
+                    native: false, ticket: frameTicket, accurate: false)
+            }
             await PreviewPreloader.shared.foregroundSelectionStarted(targetID)
             let native = is100PercentZoom
             let image = native ? await ThumbnailLoader.shared.loadNativeCameraJPEG(for: asset)
@@ -1422,6 +1457,7 @@ public struct LoupeView: View {
             guard !Task.isCancelled, loadRevision.accepts(ticket),
                   appState.displaySourceRevision == sourceRevision,
                   appState.primarySelectedAssetID == targetID,
+                  appState.primarySelectedAsset.map(cameraAssetVersion) == cameraVersion,
                   appState.workspaceMode == .library, is100PercentZoom == native else { return }
             display.accept(image, assetID: targetID, filename: asset.filename, pixels: image?.size ?? .zero,
                 native: native, ticket: frameTicket,
@@ -1430,6 +1466,9 @@ public struct LoupeView: View {
             imageError = image == nil ? (native ? "Native JPEG unavailable. Choose Fit or Develop for RAW 100%." : "Camera JPEG unavailable. Open Develop for accurate RAW.") : nil
             finishROIForeground(owner: frameTicket.uuidString)
             await PreviewPreloader.shared.foregroundSelectionCompleted(targetID)
+            guard !Task.isCancelled, loadRevision.accepts(ticket), appState.primarySelectedAssetID == targetID,
+                  appState.displaySourceRevision == sourceRevision, appState.workspaceMode == .library else { return }
+            if image != nil { scheduleCameraNeighbors(from: asset) }
             return
         }
         if let ready = InspectionReadyFrameHandoff.current(for: asset, xmp: activeXMP(for: asset), display: display,
@@ -1729,6 +1768,23 @@ public struct LoupeView: View {
                 } else {
                     finishROIForeground(owner: roiOwner)
                 }
+            }
+        }
+    }
+
+    @State private var cameraNeighborTask: Task<Void, Never>?
+    @State private var previousCameraNeighborIndex: Int?
+    private func scheduleCameraNeighbors(from selected: PhotoAsset) {
+        let assets = appState.displayedAssets
+        guard let index = assets.firstIndex(where: { $0.id == selected.id }) else { return }
+        let direction = previousCameraNeighborIndex.map { index >= $0 ? 1 : -1 } ?? 1
+        previousCameraNeighborIndex = index
+        let neighbors = [index + direction, index + 2 * direction].filter { assets.indices.contains($0) }.map { assets[$0] }
+        cameraNeighborTask?.cancel()
+        cameraNeighborTask = Task {
+            for neighbor in neighbors {
+                guard !Task.isCancelled, appState.workspaceMode == .library, appState.primarySelectedAssetID == selected.id else { return }
+                _ = await ThumbnailLoader.shared.loadCameraPreview(for: neighbor, maxPixelSize: 1600)
             }
         }
     }

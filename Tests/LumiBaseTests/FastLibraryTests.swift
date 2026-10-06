@@ -61,8 +61,11 @@ final class FastLibraryTests: XCTestCase {
         let asset = PhotoAsset(fileURL: raw, companionURLs: [jpg])
         let first = await ThumbnailLoader.shared.loadCameraPreview(for: asset)
         XCTAssertEqual(first?.size.width, 32)
+        XCTAssertEqual(ThumbnailLoader.readyCameraPreview(for: asset)?.size.width, 32)
         try writeJPEG(width: 64)
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 10)], ofItemAtPath: jpg.path)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertNil(ThumbnailLoader.readyCameraPreview(for: asset), "A changed companion must invalidate the memory-only body handoff before a new decode")
         let changed = await ThumbnailLoader.shared.loadCameraPreview(for: asset)
         XCTAssertEqual(changed?.size.width, 64, "Companion file revision must be in the camera cache key")
         let cancelled = Task { @MainActor in

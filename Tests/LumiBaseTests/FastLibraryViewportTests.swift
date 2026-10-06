@@ -12,6 +12,49 @@ private struct FastViewport: View {
 }
 
 final class FastLibraryViewportTests: XCTestCase {
+    @MainActor func testWarmCameraSelectionNeverPresentsEmptyOrWrongPhoto() async throws {
+        guard ProcessInfo.processInfo.environment["LUMIBASE_VIEWPORT_PROBE"] == "1" else { throw XCTSkip("Read-only mounted A7RV handoff probe") }
+        let folder = URL(fileURLWithPath: "/Volumes/Extreme SSD/Working/2026.10.02-05 Hot Air Ballon Festival/A7RV")
+        guard FileManager.default.fileExists(atPath: folder.path) else { throw XCTSkip("A7RV not mounted") }
+        let assets = await Task.detached { FolderScanner.quickScan(url: folder) }.value
+        XCTAssertEqual(assets.count, 739)
+        let middle = assets.count / 2
+        for asset in assets[middle...middle+3] { _ = await ThumbnailLoader.shared.loadCameraPreview(for: asset) }
+        let state = AppState(); state.isHistogramEnabled = false; state.allAssets = assets
+        state.selectAsset(assets[middle]); state.viewMode = .loupe
+        let host = NSHostingView(rootView: FastViewport(state: state))
+        let window = NSWindow(contentRect: CGRect(x: 80, y: 80, width: 1100, height: 740), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host; window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil); window.contentView = nil }
+        func surface(_ view: NSView) -> InspectionSurface.Surface? {
+            if let target = view as? InspectionSurface.Surface { return target }
+            return view.subviews.compactMap { surface($0) }.first
+        }
+        try await Task.sleep(nanoseconds: 500_000_000)
+        var rows: [[String: Any]] = []
+        for step in 0..<12 {
+            let asset = assets[middle + 1 + step % 3]
+            state.selectAsset(asset)
+            var empty = 0, spinner = 0, emptyMs = 0.0
+            let started = ProcessInfo.processInfo.systemUptime
+            var previous = started
+            while ProcessInfo.processInfo.systemUptime - started < 0.09 {
+                host.layoutSubtreeIfNeeded()
+                let target = try XCTUnwrap(surface(host))
+                let now = ProcessInfo.processInfo.systemUptime
+                if target.owner?.hasPresentedImage == false { empty += 1; emptyMs += (now - previous) * 1000 }
+                if target.owner?.presentsSpinner == true { spinner += 1 }
+                if target.owner?.hasPresentedImage == true { XCTAssertEqual(target.owner?.presentedAssetID, state.primarySelectedAssetID) }
+                previous = now
+                try await Task.sleep(nanoseconds: 5_000_000)
+            }
+            rows.append(["step": step, "emptySamples": empty, "spinnerSamples": spinner, "emptyMs": emptyMs])
+            XCTAssertEqual(empty, 0, "Warm selected camera preview must reach actual host without an empty branch")
+            XCTAssertEqual(spinner, 0)
+            XCTAssertEqual(state.displayedBitmap?.assetID, asset.id)
+        }
+        print("WARM_SELECTION_PRESENTATION \(rows)")
+    }
     @MainActor func testPlainLibraryClickPublishesNativeJPEGAndStaysZoomed() async throws {
         guard ProcessInfo.processInfo.environment["LUMIBASE_VIEWPORT_PROBE"] == "1" else { throw XCTSkip("Read-only A7RV native click probe") }
         let folder = URL(fileURLWithPath: "/Volumes/Extreme SSD/Working/2026.10.02-05 Hot Air Ballon Festival/A7RV")
@@ -39,7 +82,22 @@ final class FastLibraryViewportTests: XCTestCase {
         let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: now + 0.03, windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
         ImageWorkDiagnostics.start()
         target.mouseDown(with: down); target.mouseUp(with: up)
-        try await wait(2)
+        var emptySamples = 0, spinnerSamples = 0
+        var emptyMs = 0.0
+        var previousSample = ProcessInfo.processInfo.systemUptime
+        let sampleUntil = previousSample + 2
+        while ProcessInfo.processInfo.systemUptime < sampleUntil {
+            host.layoutSubtreeIfNeeded()
+            let sampleTime = ProcessInfo.processInfo.systemUptime
+            if target.owner?.hasPresentedImage == false { emptySamples += 1; emptyMs += (sampleTime - previousSample) * 1000 }
+            if target.owner?.presentsSpinner == true { spinnerSamples += 1 }
+            if target.owner?.hasPresentedImage == true { XCTAssertEqual(target.owner?.presentedAssetID, state.primarySelectedAssetID) }
+            previousSample = sampleTime
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        print("ZOOM_PRESENTATION emptySamples=\(emptySamples) spinnerSamples=\(spinnerSamples) emptyMs=\(emptyMs)")
+        XCTAssertEqual(emptySamples, 0, "A selected Fit frame must stay on the actual native-hosted image branch during native decode")
+        XCTAssertEqual(spinnerSamples, 0, "No central spinner over a ready same-photo proxy")
         let frame = try XCTUnwrap(state.displayedBitmap)
         let cg = try XCTUnwrap(frame.image.cgImage(forProposedRect: nil, context: nil, hints: nil))
         XCTAssertGreaterThan(cg.width, 2560, "Plain click must stay at native JPEG pixels after mouse up")

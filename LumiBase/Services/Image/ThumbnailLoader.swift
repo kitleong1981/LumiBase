@@ -16,6 +16,61 @@ private final class CameraNativeCache: @unchecked Sendable {
     init() { images.countLimit = 2; images.totalCostLimit = 512 * 1024 * 1024 }
 }
 
+private final class CameraReadyFrame: NSObject {
+    let image: NSImage
+    let sourceVersion: String
+    private var observers: [DispatchSourceFileSystemObject] = []
+    init(image: NSImage, sourceVersion: String, urls: [URL], invalidate: @escaping @Sendable () -> Void) {
+        self.image = image; self.sourceVersion = sourceVersion
+        for url in urls {
+            let descriptor = open(url.path, O_EVTONLY)
+            guard descriptor >= 0 else { continue }
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor,
+                eventMask: [.write, .delete, .rename, .attrib, .extend, .revoke], queue: .global(qos: .userInitiated))
+            source.setEventHandler(handler: invalidate)
+            source.setCancelHandler { close(descriptor) }
+            observers.append(source); source.resume()
+        }
+    }
+    deinit { observers.forEach { $0.cancel() } }
+}
+
+/// Only small camera proxies; no native neighbor pixels. Identity uses immutable scan metadata.
+private final class CameraReadyCache: @unchecked Sendable {
+    let frames = CameraReadyMemory()
+}
+
+/// Hard bounds rather than NSCache's advisory eviction; resident warm proxies are
+/// deterministic even when the separate large native cache triggers memory pressure.
+private final class CameraReadyMemory: @unchecked Sendable {
+    private let lock = NSLock()
+    private var entries: [NSString: (frame: CameraReadyFrame, cost: Int)] = [:]
+    private var order: [NSString] = []
+    private var bytes = 0
+    func object(forKey key: NSString) -> CameraReadyFrame? {
+        lock.lock(); defer { lock.unlock() }
+        guard let entry = entries[key] else { return nil }
+        order.removeAll { $0 == key }; order.append(key)
+        return entry.frame
+    }
+    func removeObject(forKey key: NSString) {
+        lock.lock(); defer { lock.unlock() }
+        if let entry = entries.removeValue(forKey: key) { bytes -= entry.cost }
+        order.removeAll { $0 == key }
+    }
+    func setObject(_ frame: CameraReadyFrame, forKey key: NSString, cost: Int) {
+        lock.lock(); defer { lock.unlock() }
+        if let old = entries.removeValue(forKey: key) { bytes -= old.cost }
+        order.removeAll { $0 == key }
+        guard cost <= 96 * 1024 * 1024 else { return }
+        entries[key] = (frame, cost); bytes += cost; order.append(key)
+        while entries.count > 12 || bytes > 96 * 1024 * 1024 {
+            let first = order.removeFirst()
+            if let old = entries.removeValue(forKey: first) { bytes -= old.cost }
+        }
+    }
+}
+
 /// High-performance thumbnail extractor utilizing ImageIO embedded JPEG previews
 public actor ThumbnailLoader {
     public static let shared = ThumbnailLoader()
@@ -80,20 +135,47 @@ public actor ThumbnailLoader {
         return result
     }
     
+    private nonisolated static let cameraReady = CameraReadyCache()
+    private nonisolated static func cameraReadyKey(_ asset: PhotoAsset, maxPixelSize: Int) -> NSString {
+        "\(asset.id)|\(asset.dateModified.timeIntervalSinceReferenceDate)|\(asset.fileSize)|\(asset.companionURLs.map(\.path).joined(separator: "|"))|\(maxPixelSize)" as NSString
+    }
+    /// Body-safe: no stat, disk read, actor hop, RAW or native decode.
+    public nonisolated static func readyCameraPreview(for asset: PhotoAsset, maxPixelSize: Int = 1600) -> NSImage? {
+        cameraReady.frames.object(forKey: cameraReadyKey(asset, maxPixelSize: maxPixelSize))?.image
+    }
+    private nonisolated static func publishCameraReady(_ image: NSImage, asset: PhotoAsset, maxPixelSize: Int, version: String) {
+        let key = cameraReadyKey(asset, maxPixelSize: maxPixelSize)
+        if let existing = cameraReady.frames.object(forKey: key), existing.sourceVersion == version, existing.image === image { return }
+        let frame = CameraReadyFrame(image: image, sourceVersion: version, urls: [asset.fileURL] + asset.companionURLs) {
+            cameraReady.frames.removeObject(forKey: key)
+        }
+        cameraReady.frames.setObject(frame, forKey: key, cost: Int(image.size.width * image.size.height * 4))
+    }
+
     /// Camera-preview-only path. RAW never uses CreateThumbnailFromImageAlways or a
     /// CIRAWFilter fallback: absence of an embedded JPEG is an explicit unavailable state.
-    public func loadCameraPreview(for asset: PhotoAsset, maxPixelSize: Int = 1600) async -> NSImage? {
-        guard !Task.isCancelled else { return nil }
-        let versions = ([asset.fileURL] + asset.companionURLs).map { url in
-            // URL.resourceValues can retain an old stat across in-place companion edits.
+    private nonisolated static func cameraSourceVersion(for asset: PhotoAsset) -> String {
+        ([asset.fileURL] + asset.companionURLs).map { url in
             let info = try? FileManager.default.attributesOfItem(atPath: url.path)
             let modified = (info?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
             let size = (info?[.size] as? NSNumber)?.int64Value ?? 0
-            return "\(url.standardizedFileURL.path):\(modified):\(size)"
+            return "\(url.path):\(modified):\(size)"
         }.joined(separator: "|")
+    }
+
+    public func loadCameraPreview(for asset: PhotoAsset, maxPixelSize: Int = 1600) async -> NSImage? {
+        guard !Task.isCancelled else { return nil }
+        let versions = Self.cameraSourceVersion(for: asset)
         let key = cache.cacheKey(for: asset.fileURL, maxPixelSize: maxPixelSize,
             dateModified: asset.dateModified, developTag: "camera-jpeg-only-v2|" + versions)
-        if let image = cache.image(forKey: key) { return image }
+        let readyKey = Self.cameraReadyKey(asset, maxPixelSize: maxPixelSize)
+        if let ready = Self.cameraReady.frames.object(forKey: readyKey), ready.sourceVersion != versions {
+            Self.cameraReady.frames.removeObject(forKey: readyKey)
+        }
+        if let image = cache.image(forKey: key) {
+            Self.publishCameraReady(image, asset: asset, maxPixelSize: maxPixelSize, version: versions)
+            return image
+        }
         let cancellation = CameraPreviewCancellation()
         let image: NSImage? = await withTaskCancellationHandler {
           await withCheckedContinuation { continuation in
@@ -125,8 +207,11 @@ public actor ThumbnailLoader {
             }
           }
         } onCancel: { cancellation.cancel() }
-        guard !Task.isCancelled else { return nil }
-        if let image { cache.store(image: image, forKey: key) }
+        guard !Task.isCancelled, Self.cameraSourceVersion(for: asset) == versions else { return nil }
+        if let image {
+            cache.store(image: image, forKey: key)
+            Self.publishCameraReady(image, asset: asset, maxPixelSize: maxPixelSize, version: versions)
+        }
         return image
     }
 
@@ -140,6 +225,18 @@ public actor ThumbnailLoader {
     /// a 1600px proxy is never advertised as native and RAW is never decoded.
     public func loadNativeCameraJPEG(for asset: PhotoAsset) async -> NSImage? {
         guard !Task.isCancelled else { return nil }
+        // Validate fresh source versions on the loader actor, then do a memory-only
+        // hit before entering the serial decode queue (which may hold a cold decode).
+        let companions = asset.companionURLs.filter {
+            ["jpg", "jpeg"].contains($0.pathExtension.lowercased()) &&
+            $0.deletingPathExtension().lastPathComponent == asset.fileURL.deletingPathExtension().lastPathComponent &&
+            $0.deletingLastPathComponent() == asset.fileURL.deletingLastPathComponent()
+        }
+        for url in companions + [asset.fileURL] {
+            let info = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let key = "native-jpeg-v1|\(url.path)|\((info?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)|\(info?[.size] as? NSNumber ?? 0)" as NSString
+            if let cached = Self.nativeCache.images.object(forKey: key) { return Task.isCancelled ? nil : cached }
+        }
         let cancellation = CameraPreviewCancellation()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
