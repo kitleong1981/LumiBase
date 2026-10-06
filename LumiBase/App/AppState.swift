@@ -458,6 +458,16 @@ public final class AppState: ObservableObject {
         return sortAssets(filtered, by: sortOrder)
     }
     
+    /// One-based position of the active photo in the current filtered, sorted collection.
+    public var photoPositionLabel: String {
+        let assets = displayedAssets
+        guard let id = primarySelectedAssetID,
+              let index = assets.firstIndex(where: { $0.id == id }) else {
+            return "\(assets.count) photos"
+        }
+        return "\(index + 1) / \(assets.count) photos"
+    }
+
     public var primarySelectedAsset: PhotoAsset? {
         guard let id = primarySelectedAssetID else {
             guard var first = displayedAssets.first else { return nil }

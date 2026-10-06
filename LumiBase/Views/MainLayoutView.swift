@@ -38,7 +38,7 @@ public struct MainLayoutView: View {
         }
         .environmentObject(appState)
         .background(LightroomTheme.workspaceBackground)
-        .navigationTitle("LumiBase v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.12.0")")
+        .navigationTitle("LumiBase v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.13.0")")
         .toolbar {
             ToolbarItemGroup(placement: .automatic) {
                 // Open Folder Button
