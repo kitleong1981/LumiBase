@@ -96,7 +96,7 @@ public final class PhotoExportService: @unchecked Sendable {
                 } else {
                     decodedTint = defaultTint
                 }
-                rawFilter.baselineExposure = 0.30
+                // Preserve native per-file BaselineExposure, independently of the user's exposure EV.
                 rawFilter.shadowBias = 0.0
                 rawFilter.boostShadowAmount = 0.0
                 rawFilter.boostAmount = 1.0

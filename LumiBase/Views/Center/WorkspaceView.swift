@@ -21,6 +21,7 @@ public struct WorkspaceView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(PhotoKeyboardFocusSurface(appState: appState))
             
             Divider().background(LightroomTheme.dividerColor)
             
@@ -29,4 +30,18 @@ public struct WorkspaceView: View {
         }
         .background(LightroomTheme.workspaceBackground)
     }
+}
+
+/// Non-hit-testing native bounds marker; never steals image gestures or text focus.
+struct PhotoKeyboardFocusSurface: NSViewRepresentable {
+    let appState: AppState
+    final class Surface: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+    func makeNSView(context: Context) -> Surface {
+        let view = Surface()
+        appState.photoKeyboardSurfaces.add(view)
+        return view
+    }
+    func updateNSView(_ view: Surface, context: Context) {}
 }
