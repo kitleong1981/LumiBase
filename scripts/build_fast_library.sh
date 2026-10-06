@@ -3,9 +3,9 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT="${LUMIBASE_FAST_OUTPUT:-/Users/kitleong/projects/LumiBase-builds}"
-DERIVED="${LUMIBASE_FAST_DERIVED:-$OUTPUT/fast-library-1.14.3-derived}"
+DERIVED="${LUMIBASE_FAST_DERIVED:-$OUTPUT/fast-library-1.14.4-derived}"
 APP="$OUTPUT/LumiBase Fast Library.app"
-ZIP="$OUTPUT/LumiBase-1.14.3-FastLibrary.zip"
+ZIP="$OUTPUT/LumiBase-1.14.4-FastLibrary.zip"
 if [[ -e "$APP" || -e "$ZIP" ]]; then
     printf 'Refusing to overwrite existing Fast Library artifacts. Archive them or set LUMIBASE_FAST_OUTPUT.\n' >&2
     exit 1
@@ -20,7 +20,7 @@ BUILT="$DERIVED/Build/Products/Release/LumiBase Fast Library.app"
 /usr/bin/ditto "$BUILT" "$APP"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
-/usr/bin/zip -q -j "$ZIP" "$ROOT/docs/1.14.3-fast-library-zhTW.md"
+/usr/bin/zip -q -j "$ZIP" "$ROOT/docs/1.14.4-fast-library-zhTW.md"
 /usr/bin/unzip -t "$ZIP" > "$OUTPUT/fast-library-zip-verification.log"
 /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist"

@@ -31,6 +31,9 @@ final class FastLibraryViewportTests: XCTestCase {
             return view.subviews.compactMap { surface($0) }.first
         }
         try await Task.sleep(nanoseconds: 500_000_000)
+        // Z establishes persistent 100% intent; selected warm proxies must retain native geometry.
+        NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleZoom"), object: nil)
+        try await Task.sleep(nanoseconds: 350_000_000)
         var rows: [[String: Any]] = []
         for step in 0..<12 {
             let asset = assets[middle + 1 + step % 3]
@@ -44,6 +47,13 @@ final class FastLibraryViewportTests: XCTestCase {
                 let now = ProcessInfo.processInfo.systemUptime
                 if target.owner?.hasPresentedImage == false { empty += 1; emptyMs += (now - previous) * 1000 }
                 if target.owner?.presentsSpinner == true { spinner += 1 }
+                let owner = try XCTUnwrap(target.owner)
+                let extent = ThumbnailLoader.readyCameraFullExtent(for: asset)
+                XCTAssertEqual(extent.size, CGSize(width: 9504, height: 6336))
+                XCTAssertTrue(owner.presentedZoomed)
+                XCTAssertEqual(owner.presentedImageSize.width, extent.width / window.backingScaleFactor, accuracy: 0.01)
+                XCTAssertEqual(owner.presentedImageSize.height, extent.height / window.backingScaleFactor, accuracy: 0.01)
+                if owner.preparingNative { XCTAssertFalse(owner.presentedNative) }
                 if target.owner?.hasPresentedImage == true { XCTAssertEqual(target.owner?.presentedAssetID, state.primarySelectedAssetID) }
                 previous = now
                 try await Task.sleep(nanoseconds: 5_000_000)
@@ -55,7 +65,7 @@ final class FastLibraryViewportTests: XCTestCase {
         }
         print("WARM_SELECTION_PRESENTATION \(rows)")
     }
-    @MainActor func testPlainLibraryClickPublishesNativeJPEGAndStaysZoomed() async throws {
+    @MainActor func testLibraryHoldPublishesNativeJPEGThenReleaseReturnsFit() async throws {
         guard ProcessInfo.processInfo.environment["LUMIBASE_VIEWPORT_PROBE"] == "1" else { throw XCTSkip("Read-only A7RV native click probe") }
         let folder = URL(fileURLWithPath: "/Volumes/Extreme SSD/Working/2026.10.02-05 Hot Air Ballon Festival/A7RV")
         guard FileManager.default.fileExists(atPath: folder.path) else { throw XCTSkip("A7RV not mounted") }
@@ -81,7 +91,7 @@ final class FastLibraryViewportTests: XCTestCase {
         let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: now, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
         let up = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: now + 0.03, windowNumber: window.windowNumber, context: nil, eventNumber: 2, clickCount: 1, pressure: 0))
         ImageWorkDiagnostics.start()
-        target.mouseDown(with: down); target.mouseUp(with: up)
+        target.mouseDown(with: down)
         var emptySamples = 0, spinnerSamples = 0
         var emptyMs = 0.0
         var previousSample = ProcessInfo.processInfo.systemUptime
@@ -100,7 +110,8 @@ final class FastLibraryViewportTests: XCTestCase {
         XCTAssertEqual(spinnerSamples, 0, "No central spinner over a ready same-photo proxy")
         let frame = try XCTUnwrap(state.displayedBitmap)
         let cg = try XCTUnwrap(frame.image.cgImage(forProposedRect: nil, context: nil, hints: nil))
-        XCTAssertGreaterThan(cg.width, 2560, "Plain click must stay at native JPEG pixels after mouse up")
+        XCTAssertEqual(cg.width, 9504, "Held inspection must publish actual native JPEG pixels")
+        XCTAssertEqual(cg.height, 6336)
         XCTAssertTrue(frame.label.contains("100%"))
         XCTAssertFalse(frame.accurate, "Camera JPEG is never a developed RAW frame")
         let pixelSize = CGSize(width: cg.width, height: cg.height)
@@ -114,6 +125,12 @@ final class FastLibraryViewportTests: XCTestCase {
         XCTAssertEqual(ImageWorkDiagnostics.snapshot()["sourceLoad", default: 0], 0)
         XCTAssertEqual(ImageWorkDiagnostics.snapshot()["histogramBins", default: 0], 0)
         print("NATIVE_CLICK width=\(cg.width) height=\(cg.height) backing=\(window.backingScaleFactor) label=\(frame.label) elapsedMs=\((frame.readyUptime-now)*1000)")
+        target.mouseUp(with: up)
+        try await wait(0.15)
+        XCTAssertFalse(target.owner?.presentedZoomed ?? true, "Release returns Fit")
+        // Persistent zoom uses the actual Z notification, not an ordinary click.
+        NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleZoom"), object: nil)
+        try await wait(0.15)
         let dragPoint = CGPoint(x: point.x + 40, y: point.y + 20)
         let dragDown = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: now + 3, windowNumber: window.windowNumber, context: nil, eventNumber: 3, clickCount: 1, pressure: 1))
         let drag = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDragged, location: dragPoint, modifierFlags: [], timestamp: now + 3.1, windowNumber: window.windowNumber, context: nil, eventNumber: 4, clickCount: 1, pressure: 1))
@@ -121,10 +138,10 @@ final class FastLibraryViewportTests: XCTestCase {
         target.mouseDown(with: dragDown); target.mouseDragged(with: drag); target.mouseUp(with: dragUp)
         try await wait(0.15)
         XCTAssertTrue(state.displayedBitmap?.label.contains("native 100%") == true, "Drag must pan, not toggle Fit")
-        target.mouseDown(with: down); target.mouseUp(with: up)
+        NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleZoom"), object: nil)
         try await wait(0.4)
         let fit = try XCTUnwrap(state.displayedBitmap)
-        XCTAssertFalse(fit.label.contains("100%"), "Second short click must return to Fit")
+        XCTAssertFalse(fit.label.contains("100%"), "Z must return to Fit")
         XCTAssertLessThanOrEqual(fit.image.size.width, 1600)
     }
 

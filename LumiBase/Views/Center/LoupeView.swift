@@ -382,13 +382,19 @@ struct InspectionSurface: NSViewRepresentable {
     var up: () -> Void
     var navigate: (Int) -> Void
     var backingChanged: (CGFloat) -> Void
-    var singleClickToggles = false
     // Native-host inspection of the exact image/spinner branches rendered above this surface.
     var presentedAssetID: String?
     var hasPresentedImage = false
     var presentsSpinner = false
+    var presentedImageSize: CGSize = .zero
+    var presentedFullExtent: CGRect = .zero
+    var presentedZoomed = false
+    var presentedNative = false
+    var preparingNative = false
+    var captureScope = ""
     func makeNSView(context: Context) -> Surface { Surface() }
     func updateNSView(_ view: Surface, context: Context) {
+        if let previous = view.owner, previous.captureScope != captureScope { view.endCapture() }
         view.owner = self
     }
     static func dismantleNSView(_ view: Surface, coordinator: ()) {
@@ -455,8 +461,7 @@ struct InspectionSurface: NSViewRepresentable {
             let toggle = doubleClickCandidate && shortClick
             endCapture()
             previousShortClick = shortClick && !toggle
-            if shortClick && owner?.singleClickToggles == true { owner?.down(point, 3) }
-            else if toggle { owner?.down(point, 2) }
+            if toggle { owner?.down(point, 2) }
             logger.debug("release short=\(shortClick) persistentToggle=\(toggle)")
         }
 
@@ -576,9 +581,9 @@ public struct LoupeView: View {
                 let visibleImageIsCurrent = presentation.settingsCurrent
                 let selectedHandoff: InspectionReadyFrameHandoff.Frame? = appState.primarySelectedAsset.flatMap { asset in
                     if appState.workspaceMode == .library {
-                        guard let image = ThumbnailLoader.readyCameraPreview(for: asset) else { return nil }
-                        return InspectionReadyFrameHandoff.Frame(image: image, native: false, sourceRect: nil,
-                            fullExtent: .zero, provenance: inspection.zoomed ? "current-preview-native-pending" : "camera-preview")
+                        guard let frame = ThumbnailLoader.readyCameraGeometry(for: asset) else { return nil }
+                        return InspectionReadyFrameHandoff.Frame(image: frame.image, native: false, sourceRect: nil,
+                            fullExtent: frame.fullExtent, provenance: inspection.zoomed ? "current-preview-native-pending" : "camera-preview")
                     }
                     return InspectionReadyFrameHandoff.current(for: asset, xmp: activeXMP(for: asset), display: display,
                         zoomed: inspection.zoomed, center: inspection.center, viewport: viewportPixels, backing: backingScale,
@@ -818,15 +823,7 @@ public struct LoupeView: View {
                         InspectionSurface(
                             down: { point, count in
                                 Logger(subsystem: "com.lumibase.inspection", category: "state").debug("intent count=\(count) loading=\(isLoading) nativeFrame=\(display.native) hasFrame=\(display.image != nil) error=\(imageError != nil)")
-                                if appState.workspaceMode == .library {
-                                    if count == 3 {
-                                        // Toggle only a completed short click. A held drag
-                                        // pans at native pixels without toggling back to Fit.
-                                        inspection.persistent.toggle()
-                                    } else if count == 1 {
-                                        inspection.begin(at: point, pixels: pixels, viewport: viewportSize)
-                                    }
-                                } else if count == 2 { inspection.end(); toggleZoom() }
+                                if count == 2 { inspection.end(); toggleZoom() }
                                 else if showingHandoffProxy {
                                     inspection.held = true
                                 } else {
@@ -849,10 +846,14 @@ public struct LoupeView: View {
                                     updateProcessedImage(with: activeXMP(for: asset))
                                 }
                             },
-                            singleClickToggles: appState.workspaceMode == .library,
                             presentedAssetID: img == nil ? nil : appState.primarySelectedAssetID,
                             hasPresentedImage: img != nil,
-                            presentsSpinner: img == nil && (isLoading || visibleDisplay.image == nil && selectedHandoff == nil)
+                            presentsSpinner: img == nil && (isLoading || visibleDisplay.image == nil && selectedHandoff == nil),
+                            presentedImageSize: size, presentedFullExtent: fullExtent,
+                            presentedZoomed: inspection.zoomed,
+                            presentedNative: !showingHandoffProxy && visibleDisplay.native && !isLoading,
+                            preparingNative: inspection.zoomed && (showingHandoffProxy || !visibleDisplay.native || isLoading),
+                            captureScope: appState.workspaceMode == .library ? "library" : "develop"
                         )
                     }
 
@@ -994,7 +995,7 @@ public struct LoupeView: View {
                             .cornerRadius(4)
                         }
                         .buttonStyle(.plain)
-                        .help("Toggle Zoom 100% / Fit (Library: click; Develop: hold / double-click; Z)")
+                        .help("Toggle Zoom 100% / Fit (hold / double-click; Z)")
 
                         if appState.workspaceMode == .develop {
                             Button {
@@ -1245,6 +1246,7 @@ public struct LoupeView: View {
             appState.selectNextPhoto()
             return .handled
         }
+        .onChange(of: appState.workspaceMode) { _, _ in inspection.end() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             inspection.end()
         }
@@ -1446,9 +1448,9 @@ public struct LoupeView: View {
         if appState.previewPolicy(for: asset, native: is100PercentZoom) == .cameraJPEG {
             // Deliberately ignore develop display settings; metadata remains untouched.
             // Do not consult processed handoff caches, construct a RAW holder, or refine.
-            if display.image == nil, let proxy = ThumbnailLoader.readyCameraPreview(for: asset) {
-                display.accept(proxy, assetID: targetID, filename: asset.filename, pixels: proxy.size,
-                    native: false, ticket: frameTicket, accurate: false)
+            if display.image == nil, let proxy = ThumbnailLoader.readyCameraGeometry(for: asset) {
+                display.accept(proxy.image, assetID: targetID, filename: asset.filename, pixels: proxy.image.size,
+                    native: false, ticket: frameTicket, fullExtent: proxy.fullExtent, accurate: false)
             }
             await PreviewPreloader.shared.foregroundSelectionStarted(targetID)
             let native = is100PercentZoom
@@ -1461,6 +1463,7 @@ public struct LoupeView: View {
                   appState.workspaceMode == .library, is100PercentZoom == native else { return }
             display.accept(image, assetID: targetID, filename: asset.filename, pixels: image?.size ?? .zero,
                 native: native, ticket: frameTicket,
+                fullExtent: native ? CGRect(origin: .zero, size: image?.size ?? .zero) : ThumbnailLoader.readyCameraFullExtent(for: asset),
                 developSettingsIdentity: ProcessedROIRequest.settingsIdentity(activeXMP(for: asset)), accurate: false)
             isLoading = false
             imageError = image == nil ? (native ? "Native JPEG unavailable. Choose Fit or Develop for RAW 100%." : "Camera JPEG unavailable. Open Develop for accurate RAW.") : nil

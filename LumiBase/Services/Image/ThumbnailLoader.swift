@@ -19,9 +19,10 @@ private final class CameraNativeCache: @unchecked Sendable {
 private final class CameraReadyFrame: NSObject {
     let image: NSImage
     let sourceVersion: String
+    let fullExtent: CGRect
     private var observers: [DispatchSourceFileSystemObject] = []
-    init(image: NSImage, sourceVersion: String, urls: [URL], invalidate: @escaping @Sendable () -> Void) {
-        self.image = image; self.sourceVersion = sourceVersion
+    init(image: NSImage, sourceVersion: String, fullExtent: CGRect, urls: [URL], invalidate: @escaping @Sendable () -> Void) {
+        self.image = image; self.sourceVersion = sourceVersion; self.fullExtent = fullExtent
         for url in urls {
             let descriptor = open(url.path, O_EVTONLY)
             guard descriptor >= 0 else { continue }
@@ -143,10 +144,47 @@ public actor ThumbnailLoader {
     public nonisolated static func readyCameraPreview(for asset: PhotoAsset, maxPixelSize: Int = 1600) -> NSImage? {
         cameraReady.frames.object(forKey: cameraReadyKey(asset, maxPixelSize: maxPixelSize))?.image
     }
-    private nonisolated static func publishCameraReady(_ image: NSImage, asset: PhotoAsset, maxPixelSize: Int, version: String) {
+    struct ReadyCameraGeometry {
+        let image: NSImage
+        let fullExtent: CGRect
+    }
+    nonisolated static func readyCameraGeometry(for asset: PhotoAsset, maxPixelSize: Int = 1600) -> ReadyCameraGeometry? {
+        guard let frame = cameraReady.frames.object(forKey: cameraReadyKey(asset, maxPixelSize: maxPixelSize)) else { return nil }
+        return ReadyCameraGeometry(image: frame.image, fullExtent: frame.fullExtent)
+    }
+    /// Resident source geometry travels with the same versioned, bounded proxy.
+    public nonisolated static func readyCameraFullExtent(for asset: PhotoAsset, maxPixelSize: Int = 1600) -> CGRect {
+        cameraReady.frames.object(forKey: cameraReadyKey(asset, maxPixelSize: maxPixelSize))?.fullExtent ?? .zero
+    }
+    /// Metadata only, on decodeQueue. Match native JPEG preference and orientation.
+    private nonisolated static func cameraFullExtent(for asset: PhotoAsset) -> CGRect {
+        let companions = asset.companionURLs.filter {
+            ["jpg", "jpeg"].contains($0.pathExtension.lowercased()) &&
+            $0.deletingPathExtension().lastPathComponent == asset.fileURL.deletingPathExtension().lastPathComponent &&
+            $0.deletingLastPathComponent() == asset.fileURL.deletingLastPathComponent()
+        }
+        for url in companions + [asset.fileURL] {
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+                  let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = props[kCGImagePropertyPixelWidth] as? Int,
+                  let height = props[kCGImagePropertyPixelHeight] as? Int, width > 0, height > 0 else { continue }
+            let orientation = props[kCGImagePropertyOrientation] as? Int ?? 1
+            let swaps = (5...8).contains(orientation)
+            return CGRect(x: 0, y: 0, width: swaps ? height : width, height: swaps ? width : height)
+        }
+        return .zero
+    }
+    private nonisolated static func publishCameraReady(_ image: NSImage, asset: PhotoAsset, maxPixelSize: Int, version: String) async {
+        // The handoff LRU is for Loupe's 1600px proxies. Grid/filmstrip sizes use
+        // their existing thumbnail cache and must not evict selected/native handoffs.
+        guard maxPixelSize == 1600 else { return }
         let key = cameraReadyKey(asset, maxPixelSize: maxPixelSize)
         if let existing = cameraReady.frames.object(forKey: key), existing.sourceVersion == version, existing.image === image { return }
-        let frame = CameraReadyFrame(image: image, sourceVersion: version, urls: [asset.fileURL] + asset.companionURLs) {
+        let extent: CGRect = await withCheckedContinuation { continuation in
+            decodeQueue.async { continuation.resume(returning: cameraFullExtent(for: asset)) }
+        }
+        guard !Task.isCancelled, cameraSourceVersion(for: asset) == version else { return }
+        let frame = CameraReadyFrame(image: image, sourceVersion: version, fullExtent: extent, urls: [asset.fileURL] + asset.companionURLs) {
             cameraReady.frames.removeObject(forKey: key)
         }
         cameraReady.frames.setObject(frame, forKey: key, cost: Int(image.size.width * image.size.height * 4))
@@ -173,7 +211,7 @@ public actor ThumbnailLoader {
             Self.cameraReady.frames.removeObject(forKey: readyKey)
         }
         if let image = cache.image(forKey: key) {
-            Self.publishCameraReady(image, asset: asset, maxPixelSize: maxPixelSize, version: versions)
+            await Self.publishCameraReady(image, asset: asset, maxPixelSize: maxPixelSize, version: versions)
             return image
         }
         let cancellation = CameraPreviewCancellation()
@@ -210,7 +248,7 @@ public actor ThumbnailLoader {
         guard !Task.isCancelled, Self.cameraSourceVersion(for: asset) == versions else { return nil }
         if let image {
             cache.store(image: image, forKey: key)
-            Self.publishCameraReady(image, asset: asset, maxPixelSize: maxPixelSize, version: versions)
+            await Self.publishCameraReady(image, asset: asset, maxPixelSize: maxPixelSize, version: versions)
         }
         return image
     }
