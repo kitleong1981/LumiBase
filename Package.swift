@@ -10,9 +10,11 @@ let package = Package(
         .executable(
             name: "LumiBase",
             targets: ["LumiBase"]
-        )
+        ),
+        .executable(name: "LumiBaseJPEGROIHelper", targets: ["LumiBaseJPEGROIHelper"])
     ],
     targets: [
+        .executableTarget(name: "LumiBaseJPEGROIHelper", path: "Tools/LibraryJPEGROIHelper"),
         .executableTarget(
             name: "LumiBase",
             path: "LumiBase",

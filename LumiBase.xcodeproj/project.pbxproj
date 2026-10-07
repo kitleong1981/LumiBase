@@ -14,6 +14,7 @@
 		A10000012C00000100000005 /* XMPMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000005 /* XMPMetadata.swift */; };
 		A10000012C00000100000006 /* FilterCriteria.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000006 /* FilterCriteria.swift */; };
 		A10000012C00000100000007 /* ThumbnailLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000007 /* ThumbnailLoader.swift */; };
+		A10000012C00000100000040 /* LibraryJPEGROICache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000040 /* LibraryJPEGROICache.swift */; };
 		A10000012C00000100000008 /* ThumbnailCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000008 /* ThumbnailCacheManager.swift */; };
 		A10000012C00000100000009 /* RAWImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000009 /* RAWImageLoader.swift */; };
 		A10000012C0000010000000A /* HistogramCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C0000010000000A /* HistogramCalculator.swift */; };
@@ -68,6 +69,7 @@
 		A10000022C00000100000005 /* XMPMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPMetadata.swift; sourceTree = "<group>"; };
 		A10000022C00000100000006 /* FilterCriteria.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterCriteria.swift; sourceTree = "<group>"; };
 		A10000022C00000100000007 /* ThumbnailLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailLoader.swift; sourceTree = "<group>"; };
+		A10000022C00000100000040 /* LibraryJPEGROICache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryJPEGROICache.swift; sourceTree = "<group>"; };
 		A10000022C00000100000008 /* ThumbnailCacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThumbnailCacheManager.swift; sourceTree = "<group>"; };
 		A10000022C00000100000009 /* RAWImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RAWImageLoader.swift; sourceTree = "<group>"; };
 		A10000022C0000010000000A /* HistogramCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistogramCalculator.swift; sourceTree = "<group>"; };
@@ -194,6 +196,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000022C00000100000007 /* ThumbnailLoader.swift */,
+				A10000022C00000100000040 /* LibraryJPEGROICache.swift */,
 				A10000022C00000100000008 /* ThumbnailCacheManager.swift */,
 				A10000022C00000100000009 /* RAWImageLoader.swift */,
 				A10000022C0000010000000A /* HistogramCalculator.swift */,
@@ -386,6 +389,7 @@
 				A10000012C00000100000005 /* XMPMetadata.swift in Sources */,
 				A10000012C00000100000006 /* FilterCriteria.swift in Sources */,
 				A10000012C00000100000007 /* ThumbnailLoader.swift in Sources */,
+				A10000012C00000100000040 /* LibraryJPEGROICache.swift in Sources */,
 				A10000012C00000100000008 /* ThumbnailCacheManager.swift in Sources */,
 				A10000012C00000100000009 /* RAWImageLoader.swift in Sources */,
 				A10000012C0000010000000A /* HistogramCalculator.swift in Sources */,
@@ -521,7 +525,7 @@
 				CODE_SIGN_ENTITLEMENTS = LumiBase/Resources/LumiBase.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1.14.5;
+				CURRENT_PROJECT_VERSION = 1.14.6;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -531,7 +535,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.14.5;
+				MARKETING_VERSION = 1.14.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lumibase.LumiBase.FastLibrary;
 				PRODUCT_NAME = "LumiBase Fast Library";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -547,7 +551,7 @@
 				CODE_SIGN_ENTITLEMENTS = LumiBase/Resources/LumiBase.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1.14.5;
+				CURRENT_PROJECT_VERSION = 1.14.6;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -557,7 +561,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.14.5;
+				MARKETING_VERSION = 1.14.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lumibase.LumiBase.FastLibrary;
 				PRODUCT_NAME = "LumiBase Fast Library";
 				SWIFT_EMIT_LOC_STRINGS = YES;

@@ -225,6 +225,7 @@ struct InspectionDisplay {
     private(set) var fullExtent: CGRect = .zero
     private(set) var developSettingsIdentity: String?
     private var lastFullFit: Frame?
+    var selectedFitFallback: NSImage? { lastFullFit?.assetID == assetID ? lastFullFit?.image : nil }
     private var revision = InspectionRevision()
     private struct Frame {
         var image: NSImage
@@ -390,6 +391,7 @@ struct InspectionSurface: NSViewRepresentable {
     var presentedFullExtent: CGRect = .zero
     var presentedZoomed = false
     var presentedNative = false
+    var presentedSourceRect: CGRect? = nil
     var preparingNative = false
     var captureScope = ""
     // Read the live model rather than a rendered snapshot: key resignation can
@@ -565,6 +567,13 @@ public struct LoupeView: View {
     @State private var inspection = InspectionState()
     @State private var backingScale: CGFloat = 2
     @State private var roiPrototypeToggle = InspectionROIToggle()
+    // Session-only: never enables an existing profile or Develop RAW ROI implicitly.
+    @State private var libraryJPEGROIEnabled = false
+    @State private var libraryJPEGROITask: Task<Void, Never>?
+    @State private var previousLibraryROIIndex: Int?
+    private var libraryJPEGGeometry: LibraryJPEGROICache.Geometry {
+        .init(center: inspection.center, viewport: viewportPixels, backing: backingScale)
+    }
     private var roiPrototypeEnabled: Bool { roiPrototypeToggle.enabled }
     @State private var viewportPixels = CGSize(width: 1, height: 1)
     @State private var renderRevision = InspectionRevision()
@@ -587,10 +596,17 @@ public struct LoupeView: View {
                 let visibleDisplay = displayForSelectedAsset
                 let visibleSettingsIdentity = appState.primarySelectedAsset.map { ProcessedROIRequest.settingsIdentity(activeXMP(for: $0)) }
                 let presentation = visibleDisplay.presentation(for: appState.primarySelectedAssetID, settingsIdentity: visibleSettingsIdentity)
-                let visibleImageIsCurrent = presentation.settingsCurrent
+                let roiCoverageCurrent = visibleDisplay.sourceRect.map { rect in
+                    appState.workspaceMode != .library || !inspection.zoomed || rect.contains(InspectionROI.sourceRect(extent: visibleDisplay.fullExtent, center: inspection.center, viewport: viewportSize, backing: backingScale, buffer: 0))
+                } ?? true
+                let visibleImageIsCurrent = presentation.settingsCurrent && roiCoverageCurrent
                 let selectedHandoff: InspectionReadyFrameHandoff.Frame? = appState.primarySelectedAsset.flatMap { asset in
                     if appState.workspaceMode == .library {
-                        guard let frame = ThumbnailLoader.readyCameraGeometry(for: asset) else { return nil }
+                        guard let frame = ThumbnailLoader.readyCameraGeometry(for: asset) ?? (libraryJPEGROIEnabled ? LibraryJPEGROICache.shared.readyPreview(asset) : nil) else {
+                            guard visibleDisplay.owns(assetID: asset.id), let fallback = visibleDisplay.selectedFitFallback else { return nil }
+                            return InspectionReadyFrameHandoff.Frame(image: fallback, native: false, sourceRect: nil,
+                                fullExtent: visibleDisplay.fullExtent, provenance: "selected-fit-fallback")
+                        }
                         return InspectionReadyFrameHandoff.Frame(image: frame.image, native: false, sourceRect: nil,
                             fullExtent: frame.fullExtent, provenance: inspection.zoomed ? "current-preview-native-pending" : "camera-preview")
                     }
@@ -861,6 +877,7 @@ public struct LoupeView: View {
                             presentedImageSize: size, presentedFullExtent: fullExtent,
                             presentedZoomed: inspection.zoomed,
                             presentedNative: !showingHandoffProxy && visibleDisplay.native && !isLoading,
+                            presentedSourceRect: sourceRect,
                             preparingNative: inspection.zoomed && (showingHandoffProxy || !visibleDisplay.native || isLoading),
                             captureScope: appState.workspaceMode == .library ? "library" : "develop",
                             retainsHoldForConfirmation: { appState.showDeleteConfirmation }
@@ -1007,6 +1024,17 @@ public struct LoupeView: View {
                         .buttonStyle(.plain)
                         .help("Toggle Zoom 100% / Fit (hold / double-click; Z)")
 
+                        if appState.workspaceMode == .library {
+                            Button { toggleLibraryJPEGROI() } label: {
+                                Text(libraryJPEGROIEnabled ? "JPEG ROI ±1 ON · EXP" : "JPEG ROI ±1 OFF · EXP")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(LightroomTheme.accentYellow)
+                                    .padding(.horizontal, 7).padding(.vertical, 4)
+                                    .background(Color.black.opacity(0.6)).cornerRadius(4)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Experimental Library JPEG ±1 ROI cache. Default OFF; full JPEG decode may increase peak memory. Not Develop RAW ROI.")
+                        }
                         if appState.workspaceMode == .develop {
                             Button {
                                 roiPrototypeToggle.toggle()
@@ -1256,12 +1284,29 @@ public struct LoupeView: View {
             appState.selectNextPhoto()
             return .handled
         }
-        .onChange(of: appState.workspaceMode) { _, _ in inspection.end() }
+        .onChange(of: appState.workspaceMode) { _, _ in
+            inspection.end(); libraryJPEGROITask?.cancel(); LibraryJPEGROICache.shared.cancel(clear: true)
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             inspection.end()
+            libraryJPEGROITask?.cancel(); LibraryJPEGROICache.shared.cancel(clear: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseToggleZoom"))) { _ in
             toggleZoom()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseToggleLibraryJPEGROI"))) { _ in
+            toggleLibraryJPEGROI()
+        }
+        .onChange(of: is100PercentZoom) { _, zoomed in
+            if !zoomed {
+                libraryJPEGROITask?.cancel(); LibraryJPEGROICache.shared.cancel(clear: true)
+                if appState.workspaceMode == .library { display.restoreFullFit() }
+            }
+        }
+        .onChange(of: libraryJPEGGeometry) { _, _ in
+            guard appState.workspaceMode == .library else { return }
+            libraryJPEGROITask?.cancel(); LibraryJPEGROICache.shared.cancel()
+            if let asset = appState.primarySelectedAsset { scheduleLibraryJPEGROI(from: asset) }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseToggleInfoOverlay"))) { _ in
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -1292,6 +1337,8 @@ public struct LoupeView: View {
             }
         }
         .onDisappear {
+            libraryJPEGROITask?.cancel()
+            LibraryJPEGROICache.shared.cancel(clear: true)
             cameraNeighborTask?.cancel()
             inspection.end()
             _ = loadRevision.next()
@@ -1422,6 +1469,8 @@ public struct LoupeView: View {
     @MainActor
     private func loadSelectedImage() async {
         let ticket = loadRevision.next()
+        libraryJPEGROITask?.cancel()
+        LibraryJPEGROICache.shared.cancel(clear: appState.workspaceMode != .library || !is100PercentZoom)
         cameraNeighborTask?.cancel()
         _ = renderRevision.next()
         LiveDevelopPreviewEngine.shared.cancelPending()
@@ -1463,7 +1512,19 @@ public struct LoupeView: View {
                     native: false, ticket: frameTicket, fullExtent: proxy.fullExtent, accurate: false)
             }
             await PreviewPreloader.shared.foregroundSelectionStarted(targetID)
+            guard !Task.isCancelled, loadRevision.accepts(ticket), appState.primarySelectedAssetID == targetID,
+                  appState.displaySourceRevision == sourceRevision, appState.workspaceMode == .library else { return }
             let native = is100PercentZoom
+            if native, libraryJPEGROIEnabled, let roi = LibraryJPEGROICache.shared.match(asset, geometry: libraryJPEGGeometry) {
+                display.accept(roi.preview, assetID: targetID, filename: asset.filename,
+                    pixels: roi.preview?.size ?? .zero, native: false, ticket: frameTicket,
+                    fullExtent: roi.fullExtent, accurate: false)
+                display.accept(NSImage(cgImage: roi.image, size: roi.sourceRect.size), assetID: targetID,
+                    filename: asset.filename, pixels: roi.sourceRect.size, native: true, ticket: frameTicket,
+                    sourceRect: roi.sourceRect, fullExtent: roi.fullExtent, accurate: false)
+                isLoading = false
+                InspectionTrace.event("library.jpeg_roi.hit_before_full_native")
+            }
             let image = native ? await ThumbnailLoader.shared.loadNativeCameraJPEG(for: asset)
                 : await ThumbnailLoader.shared.loadCameraPreview(for: asset, maxPixelSize: 1600)
             guard !Task.isCancelled, loadRevision.accepts(ticket),
@@ -1481,7 +1542,10 @@ public struct LoupeView: View {
             await PreviewPreloader.shared.foregroundSelectionCompleted(targetID)
             guard !Task.isCancelled, loadRevision.accepts(ticket), appState.primarySelectedAssetID == targetID,
                   appState.displaySourceRevision == sourceRevision, appState.workspaceMode == .library else { return }
-            if image != nil { scheduleCameraNeighbors(from: asset) }
+            if image != nil {
+                scheduleCameraNeighbors(from: asset)
+                if native { scheduleLibraryJPEGROI(from: asset) }
+            }
             return
         }
         if let ready = InspectionReadyFrameHandoff.current(for: asset, xmp: activeXMP(for: asset), display: display,
@@ -1786,6 +1850,26 @@ public struct LoupeView: View {
     }
 
     @State private var cameraNeighborTask: Task<Void, Never>?
+    private func toggleLibraryJPEGROI() {
+        guard appState.workspaceMode == .library else { return }
+        libraryJPEGROIEnabled.toggle()
+        libraryJPEGROITask?.cancel()
+        LibraryJPEGROICache.shared.cancel(clear: true)
+        if libraryJPEGROIEnabled, is100PercentZoom, display.native, !isLoading,
+           let asset = appState.primarySelectedAsset { scheduleLibraryJPEGROI(from: asset) }
+    }
+    private func scheduleLibraryJPEGROI(from selected: PhotoAsset) {
+        guard libraryJPEGROIEnabled, appState.workspaceMode == .library, is100PercentZoom, display.native,
+              display.sourceRect == nil, !isLoading else { return }
+        let assets = appState.displayedAssets
+        guard let index = assets.firstIndex(where: { $0.id == selected.id }) else { return }
+        let direction = previousLibraryROIIndex.map { index >= $0 ? 1 : -1 } ?? 1
+        previousLibraryROIIndex = index
+        let neighbors = [index + direction, index - direction].filter { assets.indices.contains($0) }.map { assets[$0] }
+        let geometry = libraryJPEGGeometry
+        libraryJPEGROITask?.cancel()
+        libraryJPEGROITask = Task { await LibraryJPEGROICache.shared.preload(neighbors, geometry: geometry) }
+    }
     @State private var previousCameraNeighborIndex: Int?
     private func scheduleCameraNeighbors(from selected: PhotoAsset) {
         let assets = appState.displayedAssets

@@ -42,6 +42,11 @@ final class LibraryHeldGeometryTests: XCTestCase {
     @MainActor func testHeldTrashConfirmationKeeps100UntilPhysicalRelease() async throws {
         try await exercise(geometry: false, trashConfirmation: true)
     }
+    @MainActor func testHeldTrashConfirmationWithExperimentalJPEGROI() async throws {
+        setenv("LUMIBASE_JPEG_ROI_HELPER", FileManager.default.currentDirectoryPath + "/.build/release/LumiBaseJPEGROIHelper", 1)
+        defer { unsetenv("LUMIBASE_JPEG_ROI_HELPER"); LibraryJPEGROICache.shared.cancel(clear: true) }
+        try await exercise(geometry: false, trashConfirmation: true, jpegROI: true)
+    }
     @MainActor func testConfirmationFocusExceptionDoesNotSuppressAppDeactivateOrWindowClose() throws {
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
         let surface = InspectionSurface.Surface(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
@@ -59,7 +64,7 @@ final class LibraryHeldGeometryTests: XCTestCase {
             XCTAssertFalse(surface.hasCaptureMonitor)
         }
     }
-    @MainActor private func exercise(geometry: Bool, lifecycle: Bool = false, trashConfirmation: Bool = false) async throws {
+    @MainActor private func exercise(geometry: Bool, lifecycle: Bool = false, trashConfirmation: Bool = false, jpegROI: Bool = false) async throws {
         let root = inspectionTestScratchURL("held-geometry-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -84,6 +89,7 @@ final class LibraryHeldGeometryTests: XCTestCase {
         }
         func settle(_ ms: UInt64) async throws { try await Task.sleep(nanoseconds: ms * 1_000_000); host.layoutSubtreeIfNeeded() }
         try await settle(350)
+        if jpegROI { NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleLibraryJPEGROI"), object: nil) }
         let target = try XCTUnwrap(surface(host))
         let point = target.convert(CGPoint(x: target.bounds.midX, y: target.bounds.midY), to: nil)
         func event(_ type: NSEvent.EventType, time: Double, count: Int = 1, outside: Bool = false) throws -> NSEvent {
