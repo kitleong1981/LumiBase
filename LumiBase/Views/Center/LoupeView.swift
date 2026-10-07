@@ -392,6 +392,9 @@ struct InspectionSurface: NSViewRepresentable {
     var presentedNative = false
     var preparingNative = false
     var captureScope = ""
+    // Read the live model rather than a rendered snapshot: key resignation can
+    // precede SwiftUI's next representable update when a confirmation opens.
+    var retainsHoldForConfirmation: () -> Bool = { false }
     func makeNSView(context: Context) -> Surface { Surface() }
     func updateNSView(_ view: Surface, context: Context) {
         if let previous = view.owner, previous.captureScope != captureScope { view.endCapture() }
@@ -430,7 +433,13 @@ struct InspectionSurface: NSViewRepresentable {
             if let window {
                 for name in [NSWindow.willCloseNotification, NSWindow.didResignKeyNotification] {
                     captureObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                        self?.endCapture()
+                        guard let self else { return }
+                        // A same-app Trash confirmation takes key focus, not ownership
+                        // of the held gesture. Keep the app-wide release monitor alive.
+                        // Close/app deactivation/mode transition still cancel normally.
+                        if name == NSWindow.didResignKeyNotification,
+                           self.owner?.retainsHoldForConfirmation() == true { return }
+                        self.endCapture()
                     })
                 }
             }
@@ -853,7 +862,8 @@ public struct LoupeView: View {
                             presentedZoomed: inspection.zoomed,
                             presentedNative: !showingHandoffProxy && visibleDisplay.native && !isLoading,
                             preparingNative: inspection.zoomed && (showingHandoffProxy || !visibleDisplay.native || isLoading),
-                            captureScope: appState.workspaceMode == .library ? "library" : "develop"
+                            captureScope: appState.workspaceMode == .library ? "library" : "develop",
+                            retainsHoldForConfirmation: { appState.showDeleteConfirmation }
                         )
                     }
 

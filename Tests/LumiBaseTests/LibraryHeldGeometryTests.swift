@@ -4,6 +4,14 @@ import SwiftUI
 import ImageIO
 @testable import LumiBase
 
+private final class HeldFixtureTrashManager: FileManager, @unchecked Sendable {
+    let destination: URL
+    init(destination: URL) { self.destination = destination; super.init() }
+    override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+        try moveItem(at: url, to: destination.appendingPathComponent(url.lastPathComponent))
+    }
+}
+
 final class LibraryHeldGeometryTests: XCTestCase {
     func testPairedJPEGOrientationIsCarriedByProxyAndMatchesNativePixels() async throws {
         let root = inspectionTestScratchURL("oriented-camera-\(UUID())")
@@ -31,7 +39,27 @@ final class LibraryHeldGeometryTests: XCTestCase {
     @MainActor func testHostedLibraryDoubleClickWheelDragAndModeCancellation() async throws {
         try await exercise(geometry: false, lifecycle: true)
     }
-    @MainActor private func exercise(geometry: Bool, lifecycle: Bool = false) async throws {
+    @MainActor func testHeldTrashConfirmationKeeps100UntilPhysicalRelease() async throws {
+        try await exercise(geometry: false, trashConfirmation: true)
+    }
+    @MainActor func testConfirmationFocusExceptionDoesNotSuppressAppDeactivateOrWindowClose() throws {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        let surface = InspectionSurface.Surface(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        window.contentView?.addSubview(surface)
+        defer { surface.endCapture(); window.contentView = nil }
+        var held = false
+        surface.owner = InspectionSurface(down: { _, _ in held = true }, drag: { _ in }, up: { held = false }, navigate: { _ in }, backingChanged: { _ in }, retainsHoldForConfirmation: { true })
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 50, y: 50), modifierFlags: [], timestamp: 1, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        for name in [NSApplication.didResignActiveNotification, NSWindow.willCloseNotification] {
+            surface.mouseDown(with: down)
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+            XCTAssertTrue(held)
+            NotificationCenter.default.post(name: name, object: name == NSWindow.willCloseNotification ? window : nil)
+            XCTAssertFalse(held)
+            XCTAssertFalse(surface.hasCaptureMonitor)
+        }
+    }
+    @MainActor private func exercise(geometry: Bool, lifecycle: Bool = false, trashConfirmation: Bool = false) async throws {
         let root = inspectionTestScratchURL("held-geometry-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -62,6 +90,59 @@ final class LibraryHeldGeometryTests: XCTestCase {
             try XCTUnwrap(NSEvent.mouseEvent(with: type, location: outside ? CGPoint(x: -50, y: -50) : point, modifierFlags: [], timestamp: time, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: count, pressure: type == .leftMouseUp ? 0 : 1))
         }
         target.mouseDown(with: try event(.leftMouseDown, time: 1))
+        if trashConfirmation {
+            try await settle(150)
+            XCTAssertTrue(target.owner?.presentedZoomed ?? false)
+            state.requestDeleteSelectedPhotos()
+            let trash = root.appendingPathComponent("fixture-trash")
+            try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+            let manager = HeldFixtureTrashManager(destination: trash)
+            let alert = NSAlert()
+            alert.messageText = "Move generated fixture to Trash?"
+            alert.addButton(withTitle: "Move to Trash").keyEquivalent = "\r"
+            alert.addButton(withTitle: "Cancel")
+            alert.beginSheetModal(for: window) { response in
+                if response == .alertFirstButtonReturn { state.confirmDeletePendingPhotos(fileManager: manager) }
+                else { state.cancelDelete() }
+            }
+            defer { if let sheet = window.attachedSheet { window.endSheet(sheet, returnCode: .cancel) } }
+            // Deterministic delivery of the exact notification: synthetic down does
+            // not make a background host key, but its native sheet is really attached.
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+            try await settle(150)
+            XCTAssertNotNil(window.attachedSheet)
+            XCTAssertTrue(target.owner?.presentedZoomed ?? false, "dialog key focus must not release a still-held left button")
+            XCTAssertTrue(target.hasCaptureMonitor, "app-wide mouse-up capture must survive dialog focus")
+            let enter = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: [], timestamp: 1.4, windowNumber: alert.window.windowNumber,
+                context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+            alert.buttons[0].keyEquivalent = "\r"
+            alert.buttons[0].keyEquivalentModifierMask = []
+            XCTAssertTrue(alert.buttons[0].performKeyEquivalent(with: enter), "Return invokes the native sheet default action")
+            try await settle(150)
+            await state.waitForTrashCompletion()
+            try await settle(250)
+            XCTAssertEqual(state.primarySelectedAssetID, assets[1].id)
+            XCTAssertEqual(target.owner?.presentedAssetID, assets[1].id)
+            XCTAssertTrue(target.owner?.presentedZoomed ?? false, "confirm advances next photo without dropping hold")
+            XCTAssertEqual(target.owner?.presentedFullExtent.size, CGSize(width: 4800, height: 3200))
+            _ = target.routeCapturedEvent(try event(.leftMouseUp, time: 2, outside: true), leftPressed: false)
+            try await settle(150)
+            XCTAssertFalse(target.owner?.presentedZoomed ?? true)
+            XCTAssertFalse(target.hasCaptureMonitor)
+            // Release while the second confirmation is open must never resurrect the hold.
+            target.mouseDown(with: try event(.leftMouseDown, time: 4))
+            state.requestDeleteSelectedPhotos()
+            NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+            _ = target.routeCapturedEvent(try event(.leftMouseUp, time: 4.1, outside: true), leftPressed: false)
+            state.confirmDeletePendingPhotos(fileManager: manager)
+            await state.waitForTrashCompletion()
+            try await settle(150)
+            XCTAssertEqual(state.primarySelectedAssetID, assets[2].id)
+            XCTAssertFalse(target.owner?.presentedZoomed ?? true, "release during dialog remains Fit after confirmation")
+            XCTAssertFalse(target.hasCaptureMonitor)
+            return
+        }
         if !geometry {
             target.mouseUp(with: try event(.leftMouseUp, time: 1.03))
             try await settle(350)
