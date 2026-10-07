@@ -59,6 +59,7 @@
 		A10000012C00000100000031 /* ComparisonMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000031 /* ComparisonMode.swift */; };
 		A10000012C00000100000032 /* ComparisonOverlayViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000032 /* ComparisonOverlayViews.swift */; };
 		A10000012C00000100000041 /* PerformanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000041 /* PerformanceSettings.swift */; };
+		A10000012C00000100000042 /* PreviewSharpness.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000022C00000100000042 /* PreviewSharpness.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -115,6 +116,7 @@
 		A10000022C00000100000031 /* ComparisonMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComparisonMode.swift; sourceTree = "<group>"; };
 		A10000022C00000100000032 /* ComparisonOverlayViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComparisonOverlayViews.swift; sourceTree = "<group>"; };
 		A10000022C00000100000041 /* PerformanceSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceSettings.swift; sourceTree = "<group>"; };
+		A10000022C00000100000042 /* PreviewSharpness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSharpness.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -199,6 +201,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000022C00000100000007 /* ThumbnailLoader.swift */,
+				A10000022C00000100000042 /* PreviewSharpness.swift */,
 				A10000022C00000100000040 /* LibraryJPEGROICache.swift */,
 				A10000022C00000100000008 /* ThumbnailCacheManager.swift */,
 				A10000022C00000100000009 /* RAWImageLoader.swift */,
@@ -388,6 +391,7 @@
 				A10000012C00000100000001 /* LumiBaseApp.swift in Sources */,
 				A10000012C00000100000002 /* AppState.swift in Sources */,
 				A10000012C00000100000041 /* PerformanceSettings.swift in Sources */,
+				A10000012C00000100000042 /* PreviewSharpness.swift in Sources */,
 				A10000012C00000100000003 /* PhotoAsset.swift in Sources */,
 				A10000012C00000100000004 /* CameraMetadata.swift in Sources */,
 				A10000012C00000100000005 /* XMPMetadata.swift in Sources */,

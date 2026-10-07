@@ -4,6 +4,9 @@ import SwiftUI
     static let shared = PerformanceSettings()
     private let defaults: UserDefaults
     private let cache: LibraryJPEGROICache
+    @Published var sharpnessEnabled: Bool {
+        didSet { defaults.set(sharpnessEnabled, forKey: "previewSharpnessEnabled") }
+    }
     @Published var roiRadius: Int {
         didSet {
             let value = min(2, max(0, roiRadius))
@@ -23,6 +26,7 @@ import SwiftUI
     init(defaults: UserDefaults = .standard, cache: LibraryJPEGROICache = .shared) {
         self.defaults = defaults
         self.cache = cache
+        sharpnessEnabled = defaults.bool(forKey: "previewSharpnessEnabled")
         roiRadius = min(2, max(0, defaults.integer(forKey: "libraryJPEGROIRadius")))
         let saved = defaults.integer(forKey: "libraryJPEGROIBudgetMiB")
         cacheBudgetMiB = [64, 128, 256].contains(saved) ? saved : 64
@@ -57,6 +61,12 @@ struct PerformanceSettingsView: View {
                 Text("Only Library JPEG inspection at 100%. No Grid/Fit or Develop RAW neighbor decoding. Choices are remembered. The byte budget includes ROI pixels and reduced fallbacks, not app + helper RSS. Full JPEG decoding has a transient memory peak; warm native hits may be faster. One utility helper at a time.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-        }.formStyle(.grouped).padding().frame(width: 520, height: 360)
+            Section("Sharpness / Preview — Experimental") {
+                Toggle("Show preview sharpness score (default OFF)", isOn: $settings.sharpnessEnabled)
+                    .accessibilityIdentifier("previewSharpnessEnabled")
+                Text("Relative preview metric only: fixed 1024px Laplacian, sharpest 10% of 64px blocks. Uses the selected displayed full-frame preview, never extra RAW decoding or a folder scan. Compare the same view / preview quality. Noise and sharpening bias scores; not focus confidence, no automatic reject, no full-resolution thresholds.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }.formStyle(.grouped).padding().frame(width: 560, height: 520)
     }
 }

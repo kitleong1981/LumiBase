@@ -552,12 +552,22 @@ public struct LoupeView: View {
     private var displayForSelectedAsset: InspectionDisplay {
         let cameraVersionCurrent = appState.primarySelectedAsset.map { cameraAssetVersion($0) == displayCameraAssetVersion } ?? false
         return display.owns(assetID: appState.primarySelectedAssetID) && displaySourceVersion == appState.displaySourceRevision &&
-            displayIsCamera == (appState.workspaceMode == .library) && (!displayIsCamera || cameraVersionCurrent) ? display : InspectionDisplay()
+            displayIsCamera == selectedUsesCamera && (!displayIsCamera || cameraVersionCurrent) ? display : InspectionDisplay()
     }
     private func cameraAssetVersion(_ asset: PhotoAsset) -> String {
         "\(asset.dateModified.timeIntervalSinceReferenceDate)|\(asset.fileSize)|\(asset.companionURLs.map(\.path).joined(separator: "|"))"
     }
     @State private var displayCameraAssetVersion: String?
+    @State private var nativeRAWFallbackIdentity: String?
+    private func nativeFallbackIdentity(_ asset: PhotoAsset) -> String {
+        asset.id + "|" + cameraAssetVersion(asset) + "|" + asset.xmp.thumbnailDevelopCacheIdentity
+    }
+    private var selectedUsesCamera: Bool {
+        appState.primarySelectedAsset.map {
+            appState.previewPolicy(for: $0, native: is100PercentZoom) == .cameraJPEG &&
+                !(is100PercentZoom && nativeRAWFallbackIdentity == nativeFallbackIdentity($0))
+        } ?? false
+    }
     
     @State private var display = InspectionDisplay()
     @State private var displaySourceVersion: UInt64 = 0
@@ -575,7 +585,14 @@ public struct LoupeView: View {
     private var libraryJPEGGeometry: LibraryJPEGROICache.Geometry {
         .init(center: inspection.center, viewport: viewportPixels, backing: backingScale)
     }
-    private var roiPrototypeEnabled: Bool { roiPrototypeToggle.enabled }
+    private var roiPrototypeEnabled: Bool {
+        if appState.workspaceMode == .library, let asset = appState.primarySelectedAsset, asset.xmp.hasDevelopEdits {
+            // Cropped native pixels use the existing full processed render: ROI coordinates
+            // are in the uncropped source domain and must not punch holes in the crop.
+            return !asset.xmp.hasCrop
+        }
+        return roiPrototypeToggle.enabled
+    }
     @State private var viewportPixels = CGSize(width: 1, height: 1)
     @State private var renderRevision = InspectionRevision()
     @State private var loadRevision = InspectionRevision()
@@ -602,7 +619,7 @@ public struct LoupeView: View {
                 } ?? true
                 let visibleImageIsCurrent = presentation.settingsCurrent && roiCoverageCurrent
                 let selectedHandoff: InspectionReadyFrameHandoff.Frame? = appState.primarySelectedAsset.flatMap { asset in
-                    if appState.workspaceMode == .library {
+                    if selectedUsesCamera {
                         guard let frame = ThumbnailLoader.readyCameraGeometry(for: asset) ?? (libraryJPEGROIEnabled ? LibraryJPEGROICache.shared.readyPreview(asset) : nil) else {
                             guard visibleDisplay.owns(assetID: asset.id), let fallback = visibleDisplay.selectedFitFallback else { return nil }
                             return InspectionReadyFrameHandoff.Frame(image: fallback, native: false, sourceRect: nil,
@@ -920,6 +937,12 @@ public struct LoupeView: View {
                     }
                     
                     // Top-Left EXIF & XMP Overlay (HUD)
+                    if showInfoOverlay && performanceSettings.sharpnessEnabled {
+                        PreviewSharpnessInfo(state: appState.previewSharpness, selectedID: appState.primarySelectedAssetID)
+                            .padding(8).background(Color.black.opacity(0.6)).cornerRadius(4)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .padding(12).allowsHitTesting(false)
+                    }
                     if showInfoOverlay, let asset = appState.primarySelectedAsset {
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 6) {
@@ -1010,7 +1033,7 @@ public struct LoupeView: View {
                                 Image(systemName: is100PercentZoom ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                                     .font(.system(size: 9))
                                 if let selected = appState.primarySelectedAsset {
-                                    Text(!visibleDisplay.accurate && !displayIsCamera ? (is100PercentZoom ? "Preview • preparing native 100%" : "Preview • preparing accurate Develop") : appState.previewLabel(for: selected, native: is100PercentZoom))
+                                    Text(!visibleDisplay.accurate && !displayIsCamera ? (is100PercentZoom ? "Preview • preparing native 100%" : "Preview • preparing accurate display") : (appState.workspaceMode == .library && nativeRAWFallbackIdentity == nativeFallbackIdentity(selected) && is100PercentZoom ? "Native RAW 100% • on demand" : appState.previewLabel(for: selected, native: is100PercentZoom)))
                                         .font(.system(size: 10))
                                 }
                                 Text(showingHandoffProxy ? "Cached Preview" : (is100PercentZoom ? (visibleDisplay.native && !isLoading && imageError == nil ? (visibleDisplay.sourceRect == nil ? "100%" : "ROI 100%") : (roiPrototypeEnabled ? "Preparing ROI 100%" : "Preparing native 100%")) : "FIT"))
@@ -1318,16 +1341,20 @@ public struct LoupeView: View {
          .onChange(of: display.image.map(ObjectIdentifier.init)) { _, _ in
             appState.publishDisplayedBitmap(display.image, assetID: display.assetID,
                 label: display.accurate ? "Developed display bitmap" : (displayIsCamera ? (display.native ? "JPEG • native 100% (not developed RAW)" : "JPEG • camera preview (not RAW clipping)") : "Preview • preparing accurate display"),
-                accurate: display.accurate, allowPreviewHistogram: displayIsCamera && !is100PercentZoom)
+                accurate: display.accurate, allowPreviewHistogram: displayIsCamera && !is100PercentZoom,
+                scorePreview: !display.native)
         }
-        .task(id: "\(appState.primarySelectedAssetID ?? "")|\(appState.primarySelectedAsset?.dateModified.timeIntervalSinceReferenceDate ?? 0)|\(appState.primarySelectedAsset?.fileSize ?? 0)|\(appState.displaySourceRevision)|\(appState.workspaceMode == .library && is100PercentZoom)") {
+        .onChange(of: appState.primarySelectedAsset?.xmp.thumbnailDevelopCacheIdentity) { _, _ in
+            appState.previewSharpness.clear()
+        }
+        .task(id: "\(appState.primarySelectedAssetID ?? "")|\(appState.primarySelectedAsset?.dateModified.timeIntervalSinceReferenceDate ?? 0)|\(appState.primarySelectedAsset?.fileSize ?? 0)|\(appState.displaySourceRevision)|\(selectedUsesCamera && is100PercentZoom)|\(appState.primarySelectedAsset?.xmp.thumbnailDevelopCacheIdentity ?? "")|\(nativeRAWFallbackIdentity ?? "")|\(selectedUsesCamera)") {
             await loadSelectedImage()
             if let asset = appState.primarySelectedAsset {
                 updateBeforeImage(for: asset)
             }
         }
         .onChange(of: is100PercentZoom ? inspection.center : nil) { _, _ in
-            if appState.workspaceMode == .library && (currentBaseHolder == nil || !is100PercentZoom) { return }
+            if selectedUsesCamera { return }
             if InspectionFrameLayout.canReuseNativeFrame(isNative: display.native, isROI: display.sourceRect != nil, zoomed: is100PercentZoom) && display.owns(assetID: appState.primarySelectedAssetID) && !isLoading && imageError == nil { return }
             if !is100PercentZoom && display.owns(assetID: appState.primarySelectedAssetID) { InspectionFrameLayout.leaveNative(display: &display) }
             InspectionTrace.event(is100PercentZoom ? "state.zoom_onchange_zoomed" : "state.zoom_onchange_fit_render", state: inspection)
@@ -1492,7 +1519,7 @@ public struct LoupeView: View {
         }
         let targetID = asset.id
         let sourceRevision = appState.displaySourceRevision
-        let camera = appState.previewPolicy(for: asset, native: is100PercentZoom) == .cameraJPEG
+        let camera = selectedUsesCamera
         let cameraVersion = cameraAssetVersion(asset)
         let preserveCamera = camera && displayIsCamera && displaySourceVersion == sourceRevision && display.owns(assetID: targetID) && displayCameraAssetVersion == cameraVersion
         displayCameraAssetVersion = cameraVersion
@@ -1506,7 +1533,7 @@ public struct LoupeView: View {
         displayTicket = frameTicket
         isLoading = true
         startROIForeground(owner: frameTicket.uuidString)
-        if appState.previewPolicy(for: asset, native: is100PercentZoom) == .cameraJPEG {
+        if camera {
             // Deliberately ignore develop display settings; metadata remains untouched.
             // Do not consult processed handoff caches, construct a RAW holder, or refine.
             if display.image == nil, let proxy = ThumbnailLoader.readyCameraGeometry(for: asset) {
@@ -1533,7 +1560,15 @@ public struct LoupeView: View {
                   appState.displaySourceRevision == sourceRevision,
                   appState.primarySelectedAssetID == targetID,
                   appState.primarySelectedAsset.map(cameraAssetVersion) == cameraVersion,
+                  appState.primarySelectedAsset.map({ appState.previewPolicy(for: $0, native: native) == .cameraJPEG }) == true,
                   appState.workspaceMode == .library, is100PercentZoom == native else { return }
+            if native, image == nil, asset.isRaw {
+                // Embedded JPEGs are often reduced. Decode only the selected RAW on
+                // demand, never upscale a proxy and advertise it as native JPEG.
+                nativeRAWFallbackIdentity = nativeFallbackIdentity(asset)
+                finishROIForeground(owner: frameTicket.uuidString)
+                return
+            }
             display.accept(image, assetID: targetID, filename: asset.filename, pixels: image?.size ?? .zero,
                 native: native, ticket: frameTicket,
                 fullExtent: native ? CGRect(origin: .zero, size: image?.size ?? .zero) : ThumbnailLoader.readyCameraFullExtent(for: asset),
@@ -1692,7 +1727,7 @@ public struct LoupeView: View {
     }
 
     private func activeXMP(for asset: PhotoAsset) -> XMPMetadata {
-        var xmp = (appState.liveDevelopAssetID == asset.id && appState.liveDevelopXMP != nil) ? appState.liveDevelopXMP! : asset.xmp
+        var xmp = (appState.liveDevelopAssetID == asset.id && appState.liveDevelopXMP != nil) ? appState.liveDevelopXMP! : (appState.primarySelectedAsset?.id == asset.id ? appState.primarySelectedAsset!.xmp : asset.xmp)
         if appState.activeDevelopTool == .crop {
             xmp.resetCrop()
         }
@@ -1700,7 +1735,7 @@ public struct LoupeView: View {
     }
 
     private func updateProcessedImage(with xmp: XMPMetadata?) {
-        guard appState.workspaceMode == .develop || is100PercentZoom, displaySourceVersion == appState.displaySourceRevision else { return }
+        guard !selectedUsesCamera, displaySourceVersion == appState.displaySourceRevision else { return }
         let sourceRevision = appState.displaySourceRevision
         let ticket = renderRevision.next()
         LiveDevelopPreviewEngine.shared.cancelPending()
@@ -1749,7 +1784,8 @@ public struct LoupeView: View {
             LiveDevelopPreviewEngine.shared.requestRender(
                 baseHolder: holder, cameraModel: model, xmp: renderXMP, interactive: true
             ) { result in
-                guard renderRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else {
+                guard renderRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID,
+                      ProcessedROIRequest.settingsIdentity(activeXMP(for: asset)) == renderSettingsIdentity else {
                     InspectionTrace.event("render.publication_rejected_stale")
                     return
                 }
@@ -1807,14 +1843,16 @@ public struct LoupeView: View {
                 interactive: false, fullResolution: native, sourceRect: roiRect
             ) { result in
                 InspectionTrace.event("render.completion_callback", state: inspection, requestID: ticket)
-                guard renderRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else {
+                guard renderRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID,
+                      ProcessedROIRequest.settingsIdentity(activeXMP(for: asset)) == renderSettingsIdentity else {
                     InspectionTrace.event("render.publication_rejected_stale")
                     return
                 }
                 InspectionTrace.event("render.publication_accepted", state: inspection, requestID: ticket)
                 if result == nil, roiRect != nil {
                     LiveDevelopPreviewEngine.shared.requestRender(baseHolder: fresh, cameraModel: model, xmp: renderXMP, interactive: false, fullResolution: true) { fallback in
-                        guard renderRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else { return }
+                        guard renderRevision.accepts(ticket), appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID,
+                      ProcessedROIRequest.settingsIdentity(activeXMP(for: asset)) == renderSettingsIdentity else { return }
                         display.accept(fallback, assetID: targetID, filename: asset.filename, pixels: fresh.fullExtent.size,
                             native: true, ticket: displayTicket, fullExtent: fresh.fullExtent,
                             developSettingsIdentity: renderSettingsIdentity)
@@ -1825,9 +1863,11 @@ public struct LoupeView: View {
                     }
                     return
                 }
+                let croppedLibrary = appState.workspaceMode == .library && renderXMP.hasCrop && roiRect == nil
+                let frameExtent = croppedLibrary && native ? CGRect(origin: .zero, size: result?.size ?? .zero) : fresh.fullExtent
                 display.accept(result, assetID: targetID, filename: asset.filename,
-                    pixels: roiRect.map(\.size) ?? fresh.fullExtent.size, native: native, ticket: displayTicket,
-                    sourceRect: result == nil ? nil : roiRect, fullExtent: fresh.fullExtent,
+                    pixels: croppedLibrary && native ? (result?.size ?? .zero) : (roiRect.map(\.size) ?? fresh.fullExtent.size), native: native, ticket: displayTicket,
+                    sourceRect: result == nil ? nil : roiRect, fullExtent: frameExtent,
                     developSettingsIdentity: renderSettingsIdentity)
                 if let result, !native {
                     InspectionReadyFrameStore.shared.publishFullPreview(asset: asset, xmp: renderXMP,
@@ -1862,12 +1902,15 @@ public struct LoupeView: View {
     }
     private func scheduleLibraryJPEGROI(from selected: PhotoAsset) {
         guard libraryJPEGROIEnabled, appState.workspaceMode == .library, is100PercentZoom, display.native,
+              appState.previewPolicy(for: selected, native: true) == .cameraJPEG,
               display.sourceRect == nil, !isLoading else { return }
         let assets = appState.displayedAssets
         guard let index = assets.firstIndex(where: { $0.id == selected.id }) else { return }
         let direction = previousLibraryROIIndex.map { index >= $0 ? 1 : -1 } ?? 1
         previousLibraryROIIndex = index
-        let neighbors = (1...max(1, performanceSettings.roiRadius)).flatMap { [index + $0 * direction, index - $0 * direction] }.filter { assets.indices.contains($0) }.map { assets[$0] }
+        let offsets = Array(1...max(1, performanceSettings.roiRadius))
+        let indices = offsets.flatMap { [index + $0 * direction, index - $0 * direction] }
+        let neighbors = indices.filter { assets.indices.contains($0) }.map { assets[$0] }.filter { !$0.xmp.hasDevelopEdits }
         let geometry = libraryJPEGGeometry
         libraryJPEGROITask?.cancel()
         libraryJPEGROITask = Task { await LibraryJPEGROICache.shared.preload(neighbors, geometry: geometry) }
@@ -1878,7 +1921,7 @@ public struct LoupeView: View {
         guard let index = assets.firstIndex(where: { $0.id == selected.id }) else { return }
         let direction = previousCameraNeighborIndex.map { index >= $0 ? 1 : -1 } ?? 1
         previousCameraNeighborIndex = index
-        let neighbors = [index + direction, index + 2 * direction].filter { assets.indices.contains($0) }.map { assets[$0] }
+        let neighbors = [index + direction, index + 2 * direction].filter { assets.indices.contains($0) }.map { assets[$0] }.filter { !$0.xmp.hasDevelopEdits }
         cameraNeighborTask?.cancel()
         cameraNeighborTask = Task {
             for neighbor in neighbors {
@@ -1890,6 +1933,8 @@ public struct LoupeView: View {
 
     @State private var previousROINeighborIndex: Int?
     private func scheduleProcessedNeighbors(from selected: PhotoAsset) {
+        // Library edited inspection is foreground-only; never start neighbor RAW decodes.
+        guard appState.workspaceMode == .develop else { return }
         let assets = appState.displayedAssets
         guard let index = assets.firstIndex(where: { $0.id == selected.id }) else { return }
         let forward = previousROINeighborIndex.map { index >= $0 } ?? true

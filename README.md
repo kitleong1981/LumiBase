@@ -1,6 +1,10 @@
 # LumiBase
 
-## Fast Library 1.14.7：Library / Develop 與原生 Settings
+## Fast Library 1.14.7：已編輯預覽、Sharpness 與原生 Settings
+
+Develop 返回 Library，Loupe／Grid／Filmstrip 預設顯示處理後的曝光、色調與裁切；未編輯照片仍用快速 camera JPEG，星等／旗標不是修圖。已編輯 RAW 100% 對選取照片使用準確 native pipeline，未裁切可用 processed ROI，裁切走 full processed render。RAW-only Fit 使用內嵌 JPEG；無足尺寸 JPEG 時，100% 對當前照片 on-demand RAW 解碼，不把 proxy 冒充原生。
+
+**⌘, → Sharpness / Preview — Experimental** 可開啟右下角 **Sharpness · Preview**（預設 OFF、保留偏好）。只分析已顯示全畫面預覽、背景序列且不額外解碼 RAW；固定 1024px Laplacian 最銳利 10% blocks 的相對指標，不是對焦信心／自動淘汰，也不能套用 full-resolution Python 門檻。真實 hosted 三輪相同 trace first-ready 中位 OFF 18.25 / ON 19.82 ms；非快取計算 wall 中位 2.16 ms、最大 8.09 ms，詳細 CPU／RSS／heartbeat 與限制見文件。
 
 保留已接受的 Fast Library 簡化 UI、相機 JPEG 快速預覽與安全背景 Trash。按 **⌘,** 開啟原生 Settings → **Performance / Cache**：Library JPEG ROI 實驗可選 OFF（新偏好設定預設）／前後各 1／前後各 2，另選 64／128／256 MiB 預算，查看用量及清空快取。明確選擇會在重啟後保留；快取預算不是 app + helper RSS 上限，完整 JPEG 解碼仍有瞬間記憶體尖峰。暖 native hit 不一定較慢，請保持實驗 opt-in。
 

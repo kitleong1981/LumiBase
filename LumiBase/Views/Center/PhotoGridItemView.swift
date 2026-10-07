@@ -15,6 +15,8 @@ public struct PhotoGridItemView: View {
     public var sourceRevision: UInt64 = 0
     
     @State private var thumbnail: NSImage?
+    @State private var thumbnailIdentity: String?
+    private var previewIdentity: String { ThumbnailLoader.cacheKey(for: asset, maxPixelSize: Int(size * 2)) }
     @State private var isLoading: Bool = true
     
     public var body: some View {
@@ -25,7 +27,7 @@ public struct PhotoGridItemView: View {
                 ZStack {
                     Color.black.opacity(0.3)
                     
-                    if let img = thumbnail {
+                    if thumbnailIdentity == previewIdentity, let img = thumbnail {
                         Image(nsImage: img)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
@@ -130,9 +132,8 @@ public struct PhotoGridItemView: View {
                 onDoubleClick()
             }
         )
-        .onChange(of: sourceRevision) { _, _ in if isPrimary { onPreview(thumbnail) } }
-        .onChange(of: isPrimary) { _, primary in if primary { onPreview(thumbnail) } }
-        .task(id: asset.id) {
+        .onChange(of: isPrimary) { _, primary in if primary && thumbnailIdentity == previewIdentity { onPreview(thumbnail) } }
+        .task(id: "\(ThumbnailLoader.cacheKey(for: asset, maxPixelSize: Int(size * 2)))|\(sourceRevision)") {
             await loadThumbnail()
         }
     }
@@ -140,9 +141,14 @@ public struct PhotoGridItemView: View {
     @MainActor
     private func loadThumbnail() async {
         isLoading = true
-        let loaded = await ThumbnailLoader.shared.loadCameraPreview(for: asset, maxPixelSize: Int(size * 2))
+        thumbnail = nil
+        if isPrimary { onPreview(nil) }
+        let loaded = asset.xmp.hasDevelopEdits
+            ? await ThumbnailLoader.shared.loadThumbnail(for: asset, maxPixelSize: Int(size * 2))
+            : await ThumbnailLoader.shared.loadCameraPreview(for: asset, maxPixelSize: Int(size * 2))
         guard !Task.isCancelled else { return }
         self.thumbnail = loaded
+        self.thumbnailIdentity = previewIdentity
         if isPrimary { onPreview(loaded) }
         self.isLoading = false
     }

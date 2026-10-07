@@ -54,6 +54,7 @@ final class LibraryJPEGROICache: @unchecked Sendable {
     /// Body-safe proxy only, with the same scanner snapshot contract as camera handoff.
     /// Native ROI publication still validates the actual JPEG file version in match().
     func readyPreview(_ asset: PhotoAsset) -> ThumbnailLoader.ReadyCameraGeometry? {
+        guard !asset.xmp.hasDevelopEdits else { return nil }
         let snapshot = Self.snapshot(asset)
         lock.lock(); defer { lock.unlock() }
         guard let frame = entries.first(where: { $0.assetID == asset.id && $0.snapshot == snapshot })?.frame,
@@ -69,6 +70,7 @@ final class LibraryJPEGROICache: @unchecked Sendable {
         return "library-jpeg-roi-v1|\(asset.id)|\(asset.dateModified.timeIntervalSinceReferenceDate)|\(asset.fileSize)|\(url.path)|\((a[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)|\(a[.size] ?? "")"
     }
     func match(_ asset: PhotoAsset, geometry: Geometry) -> Frame? {
+        guard !asset.xmp.hasDevelopEdits else { return nil }
         guard let version = Self.version(asset) else { return nil }
         lock.lock(); defer { lock.unlock() }
         guard let index = entries.firstIndex(where: { $0.assetID == asset.id && $0.version == version && $0.geometry == geometry }) else { return nil }
@@ -80,6 +82,7 @@ final class LibraryJPEGROICache: @unchecked Sendable {
         cancel()
         let revision = token()
         for asset in assets.prefix(limits().1) {
+            guard !asset.xmp.hasDevelopEdits else { continue }
             guard !Task.isCancelled, current(revision) else { return }
             guard let version = Self.version(asset) else { continue }
             if contains(asset, version: version, geometry: geometry) { continue }

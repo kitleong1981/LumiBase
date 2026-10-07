@@ -4,16 +4,21 @@ import SwiftUI
 @testable import LumiBase
 
 final class FastLibraryTests: XCTestCase {
-    @MainActor func testLibraryDefaultAndExplicitEditedCameraPolicy() {
+    @MainActor func testLibraryDefaultShowsEditsAtFitAndNativeButMetadataKeepsCameraFastPath() {
         let state = AppState(preloader: PreviewPreloader(observeMemoryPressure: false))
         XCTAssertEqual(state.workspaceMode, .library)
         var xmp = XMPMetadata.empty; xmp.exposure2012 = 2
         let asset = PhotoAsset(fileURL: URL(fileURLWithPath: "/fixture/photo.arw"), xmp: xmp)
-        XCTAssertEqual(state.previewPolicy(for: asset, native: false), .cameraJPEG)
-        XCTAssertTrue(state.previewLabel(for: asset, native: false).contains("edits not displayed"))
-        XCTAssertEqual(state.previewPolicy(for: asset, native: true), .cameraJPEG)
-        state.workspaceMode = .develop
         XCTAssertEqual(state.previewPolicy(for: asset, native: false), .accurate)
+        XCTAssertFalse(state.previewLabel(for: asset, native: false).contains("edits not displayed"))
+        XCTAssertEqual(state.previewPolicy(for: asset, native: true), .accurate)
+        var metadata = XMPMetadata.empty; metadata.rating = 5; metadata.flag = .pick
+        let unedited = PhotoAsset(fileURL: asset.fileURL, xmp: metadata)
+        XCTAssertFalse(metadata.hasDevelopEdits)
+        XCTAssertEqual(state.previewPolicy(for: unedited, native: false), .cameraJPEG)
+        XCTAssertEqual(state.previewPolicy(for: unedited, native: true), .cameraJPEG)
+        state.workspaceMode = .develop
+        XCTAssertEqual(state.previewPolicy(for: unedited, native: false), .accurate)
         XCTAssertEqual(asset.xmp.exposure2012, 2)
     }
     @MainActor func testCameraPreviewDoesNotDecodeInvalidRAWAndIgnoresDevelopEdits() async throws {

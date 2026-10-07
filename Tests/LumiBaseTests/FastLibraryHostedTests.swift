@@ -37,7 +37,7 @@ final class FastLibraryHostedTests: XCTestCase {
         let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 48, pixelsHigh: 32,
             bitsPerSample: 8, samplesPerPixel: 3, hasAlpha: false, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         let data = try XCTUnwrap(bitmap.representation(using: .jpeg, properties: [:]))
-        var xmp = XMPMetadata.empty; xmp.exposure2012 = 2
+        var xmp = XMPMetadata.empty; xmp.rating = 2
         var assets: [PhotoAsset] = []
         for name in ["one", "two", "three"] {
             let raw = root.appendingPathComponent(name + ".ARW"), jpg = root.appendingPathComponent(name + ".JPG")
@@ -66,7 +66,7 @@ final class FastLibraryHostedTests: XCTestCase {
         try await waitReady(assets[2])
         try await Task.sleep(nanoseconds: 100_000_000)
         XCTAssertEqual(state.displayedBitmap?.assetID, assets[2].id)
-        XCTAssertEqual(state.allAssets[2].xmp.exposure2012, 2)
+        XCTAssertEqual(state.allAssets[2].xmp.rating, 2)
         XCTAssertTrue(state.displayedBitmap?.label.contains("JPEG") == true)
         XCTAssertEqual(ImageWorkDiagnostics.snapshot()["sourceLoad", default: 0], 0)
         XCTAssertEqual(ImageWorkDiagnostics.snapshot()["processedRender", default: 0], 0)

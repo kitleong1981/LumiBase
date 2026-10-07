@@ -41,11 +41,14 @@ final class PerformanceSettingsTests: XCTestCase {
         let settings = PerformanceSettings(defaults: defaults, cache: LibraryJPEGROICache())
         XCTAssertEqual(settings.roiRadius, 0)
         XCTAssertEqual(settings.cacheBudgetMiB, 64)
+        XCTAssertFalse(settings.sharpnessEnabled)
+        settings.sharpnessEnabled = true
         settings.roiRadius = 2
         settings.cacheBudgetMiB = 128
         let restored = PerformanceSettings(defaults: defaults, cache: LibraryJPEGROICache())
         XCTAssertEqual(restored.roiRadius, 2)
         XCTAssertEqual(restored.cacheBudgetMiB, 128)
+        XCTAssertTrue(restored.sharpnessEnabled)
         restored.roiRadius = 99
         restored.cacheBudgetMiB = -1
         XCTAssertEqual(restored.roiRadius, 2)

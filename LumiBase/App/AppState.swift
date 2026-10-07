@@ -48,15 +48,23 @@ public final class AppState: ObservableObject {
     }
     @Published public private(set) var displaySourceRevision: UInt64 = 0
     public func previewPolicy(for asset: PhotoAsset, native: Bool) -> DisplayPreviewPolicy {
-        workspaceMode == .library ? .cameraJPEG : .accurate
+        workspaceMode == .library && !asset.xmp.hasDevelopEdits ? .cameraJPEG : .accurate
     }
     public func previewLabel(for asset: PhotoAsset, native: Bool) -> String {
         if previewPolicy(for: asset, native: native) == .cameraJPEG {
-            return (native ? "Native JPEG 100%" : "Camera preview (JPEG)") + (asset.xmp.hasDevelopEdits ? " • Edited — edits not displayed" : "")
+            return native ? "Native JPEG 100%" : "Camera preview (JPEG)"
         }
-        return "Develop • accurate RAW + edits"
+        return workspaceMode == .library ? "Edited preview • accurate + edits" : "Develop • accurate RAW + edits"
     }
     public let displayHistogram = DisplayHistogramState()
+    let previewSharpness = PreviewSharpnessState()
+    private func refreshPreviewSharpness() {
+        guard PerformanceSettings.shared.sharpnessEnabled, let asset = primarySelectedAsset,
+              let frame = displayedBitmap, frame.assetID == asset.id, frame.scorePreview,
+              (!asset.xmp.hasDevelopEdits || frame.accurate) else { return }
+        previewSharpness.submit(frame.image, asset: asset, revision: displaySourceRevision,
+            previewKind: viewMode.rawValue + (frame.accurate ? "-processed" : "-camera"))
+    }
     @Published public var isHistogramEnabled: Bool = UserDefaults.standard.bool(forKey: "displayHistogramEnabled") {
         didSet {
             UserDefaults.standard.set(isHistogramEnabled, forKey: "displayHistogramEnabled")
@@ -74,18 +82,21 @@ public final class AppState: ObservableObject {
         let accurate: Bool
         let allowPreviewHistogram: Bool
         let readyUptime: TimeInterval
+        let scorePreview: Bool
     }
     @Published private(set) var displayedBitmap: DisplayedBitmap?
-    public func publishDisplayedBitmap(_ image: NSImage?, assetID: String?, label: String, accurate: Bool = true, allowPreviewHistogram: Bool = true) {
+    public func publishDisplayedBitmap(_ image: NSImage?, assetID: String?, label: String, accurate: Bool = true, allowPreviewHistogram: Bool = true, scorePreview: Bool = true) {
         guard let assetID, assetID == primarySelectedAssetID, let image else {
             displayedBitmap = nil; displayHistogram.clear(); return
         }
-        displayedBitmap = DisplayedBitmap(assetID: assetID, image: image, label: label, sourceRevision: displaySourceRevision, accurate: accurate, allowPreviewHistogram: allowPreviewHistogram, readyUptime: ProcessInfo.processInfo.systemUptime)
+        displayedBitmap = DisplayedBitmap(assetID: assetID, image: image, label: label, sourceRevision: displaySourceRevision, accurate: accurate, allowPreviewHistogram: allowPreviewHistogram, readyUptime: ProcessInfo.processInfo.systemUptime, scorePreview: scorePreview)
+        refreshPreviewSharpness()
         displayHistogram.enabled = isHistogramEnabled
         if (workspaceMode == .library && allowPreviewHistogram) || accurate { displayHistogram.submit(image, label: label) }
         else { displayHistogram.clear() }
     }
     private func invalidateDisplaySource() {
+        previewSharpness.clear()
         displaySourceRevision &+= 1
         displayedBitmap = nil; displayHistogram.clear()
         RAWImageLoader.shared.clearCache()
@@ -95,14 +106,23 @@ public final class AppState: ObservableObject {
     }
     // Current directory & assets
     @Published public var currentFolderURL: URL?
-    @Published public var allAssets: [PhotoAsset] = [] { didSet { invalidateCollection() } }
+    @Published public var allAssets: [PhotoAsset] = [] {
+        didSet {
+            invalidateCollection()
+            let old = oldValue.first { $0.id == primarySelectedAssetID }
+            let new = allAssets.first { $0.id == primarySelectedAssetID }
+            if old?.xmp.thumbnailDevelopCacheIdentity != new?.xmp.thumbnailDevelopCacheIdentity || old?.dateModified != new?.dateModified {
+                previewSharpness.clear()
+            }
+        }
+    }
     @Published public var isScanning: Bool = false
     @Published public var scanProgressMessage: String = ""
     
     // Selection state
     @Published public var selectedAssetIDs: Set<String> = [] { didSet { selectedAssetsCache = nil } }
     @Published public var primarySelectedAssetID: String? {
-        didSet { if oldValue != primarySelectedAssetID { displayedBitmap = nil; displayHistogram.clear() } }
+        didSet { if oldValue != primarySelectedAssetID { displayedBitmap = nil; displayHistogram.clear(); previewSharpness.clear() } }
     }
     @Published public var selectionAnchorAssetID: String?
     
@@ -232,6 +252,10 @@ public final class AppState: ObservableObject {
         }
         
         setupKeyMonitor()
+        PerformanceSettings.shared.$sharpnessEnabled.dropFirst().sink { [weak self] enabled in
+            if !enabled { self?.previewSharpness.clear() }
+            else { Task { @MainActor [weak self] in await Task.yield(); self?.refreshPreviewSharpness() } }
+        }.store(in: &previewSubscriptions)
         Publishers.MergeMany(
             $allAssets.map { _ in () }.eraseToAnyPublisher(),
             $primarySelectedAssetID.map { _ in () }.eraseToAnyPublisher(),

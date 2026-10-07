@@ -3,6 +3,7 @@ import SwiftUI
 /// Main Library Grid View displaying photo assets in a responsive grid
 public struct GridView: View {
     @ObservedObject var appState: AppState
+    @ObservedObject private var performanceSettings = PerformanceSettings.shared
     @State private var hasRestoredActivePhoto = false
     
     private var gridColumns: [GridItem] {
@@ -48,9 +49,10 @@ public struct GridView: View {
                                         appState.setFlag(nextFlag)
                                     },
                                     onPreview: { image in
-                                        guard appState.viewMode == .grid, appState.primarySelectedAssetID == asset.id else { return }
+                                        guard appState.viewMode == .grid, appState.primarySelectedAssetID == asset.id,
+                                              appState.primarySelectedAsset?.xmp.thumbnailDevelopCacheIdentity == asset.xmp.thumbnailDevelopCacheIdentity else { return }
                                         appState.publishDisplayedBitmap(image, assetID: asset.id,
-                                            label: "JPEG • grid camera preview (not RAW clipping)", accurate: false)
+                                            label: asset.xmp.hasDevelopEdits ? "Edited • processed grid preview" : "JPEG • grid camera preview (not RAW clipping)", accurate: asset.xmp.hasDevelopEdits)
                                     },
                                     sourceRevision: appState.displaySourceRevision
                                 )
@@ -75,6 +77,13 @@ public struct GridView: View {
                     }
                 }
                 .background(LightroomTheme.workspaceBackground)
+                .overlay(alignment: .bottomTrailing) {
+                    if performanceSettings.sharpnessEnabled {
+                        PreviewSharpnessInfo(state: appState.previewSharpness, selectedID: appState.primarySelectedAssetID)
+                            .padding(8).background(Color.black.opacity(0.6)).cornerRadius(4).padding(12)
+                            .allowsHitTesting(false)
+                    }
+                }
                 .onAppear {
                     DispatchQueue.main.async {
                         NSApp.keyWindow?.makeFirstResponder(nil)
