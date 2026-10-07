@@ -61,10 +61,10 @@ struct PerformanceSettingsView: View {
                 Text("Only Library JPEG inspection at 100%. No Grid/Fit or Develop RAW neighbor decoding. Choices are remembered. The byte budget includes ROI pixels and reduced fallbacks, not app + helper RSS. Full JPEG decoding has a transient memory peak; warm native hits may be faster. One utility helper at a time.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Sharpness / Preview — Experimental") {
-                Toggle("Show preview sharpness score (default OFF)", isOn: $settings.sharpnessEnabled)
+            Section("Sharpness / Full resolution — Experimental") {
+                Toggle("Show full-resolution sharpness score (default OFF)", isOn: $settings.sharpnessEnabled)
                     .accessibilityIdentifier("previewSharpnessEnabled")
-                Text("Relative preview metric only: fixed 1024px Laplacian, sharpest 10% of 64px blocks. Uses the selected displayed full-frame preview, never extra RAW decoding or a folder scan. Compare the same view / preview quality. Noise and sharpening bias scores; not focus confidence, no automatic reject, no full-resolution thresholds.")
+                Text("Relative native-pixel metric: sharpest 10% of 64px Laplacian blocks across the selected full frame. Edited photos use the full processed output including crop, never a viewport ROI. May add a selected full JPEG decode or accurate RAW decode/render, CPU and transient RAM. One active job plus latest pending metadata; no folder preload. Compare the same source/edits. Noise and sharpening bias scores; not focus confidence or an automatic reject rule.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped).padding().frame(width: 560, height: 520)

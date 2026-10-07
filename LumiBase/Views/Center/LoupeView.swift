@@ -1457,11 +1457,10 @@ public struct LoupeView: View {
                 holder = await RAWImageLoader.shared.loadBaseHolder(from: asset.fileURL, xmp: nil)
             }
             guard !Task.isCancelled, appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID, let holder else { return }
-            let rendered = RAWImageLoader.shared.renderProcessed(
+            let rendered = await RAWImageLoader.shared.renderProcessedAsync(
                 baseHolder: holder,
                 cameraModel: model,
                 xmp: beforeXMP,
-                interactive: false,
                 fullResolution: native
             )
             guard !Task.isCancelled, appState.displaySourceRevision == sourceRevision, appState.primarySelectedAssetID == targetID else { return }

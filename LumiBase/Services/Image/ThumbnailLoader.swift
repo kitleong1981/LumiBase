@@ -351,6 +351,42 @@ public actor ThumbnailLoader {
         } onCancel: { cancellation.cancel() }
     }
 
+    /// Selected-score-only utility path. Never queues on native presentation and
+    /// never inserts a new full bitmap into the native cache. Caller owns its lifetime.
+    nonisolated static func sharpnessCameraFullImage(for asset: PhotoAsset, isCurrent: () -> Bool) -> NSImage? {
+        let companions = asset.companionURLs.filter {
+            ["jpg", "jpeg"].contains($0.pathExtension.lowercased()) &&
+            $0.deletingPathExtension().lastPathComponent == asset.fileURL.deletingPathExtension().lastPathComponent &&
+            $0.deletingLastPathComponent() == asset.fileURL.deletingLastPathComponent()
+        }
+        for url in companions + [asset.fileURL] {
+            guard isCurrent() else { return nil }
+            let info = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let key = "native-jpeg-v1|\(url.path)|\((info?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)|\(info?[.size] as? NSNumber ?? 0)" as NSString
+            if let cached = nativeCache.images.object(forKey: key) {
+                ImageWorkDiagnostics.record("sharpnessNativeReuse"); return cached
+            }
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+                  let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = props[kCGImagePropertyPixelWidth] as? Int,
+                  let height = props[kCGImagePropertyPixelHeight] as? Int,
+                  width > 2, height > 2, width <= 32768, height <= 32768,
+                  width * height <= 128 * 1024 * 1024 else { continue }
+            let embeddedOnly = url == asset.fileURL && asset.isRaw
+            let options: [CFString: Any] = [kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceCreateThumbnailFromImageAlways: !embeddedOnly,
+                kCGImageSourceCreateThumbnailFromImageIfAbsent: false,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: max(width, height)]
+            guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
+                  max(cg.width, cg.height) == max(width, height),
+                  min(cg.width, cg.height) == min(width, height), isCurrent() else { continue }
+            ImageWorkDiagnostics.record("sharpnessFullJPEGDecode")
+            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        }
+        return nil
+    }
+
     /// Synchronously creates a thumbnail from disk using CIRAWFilter draft mode (for exact preview match) or ImageIO
     private nonisolated static func createThumbnail(for asset: PhotoAsset, maxPixelSize: Int) -> NSImage? {
         // 1. For RAW assets with develop edits, use CIRAWFilter draft mode to get identical color science as Loupe View

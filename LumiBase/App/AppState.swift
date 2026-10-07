@@ -59,11 +59,16 @@ public final class AppState: ObservableObject {
     public let displayHistogram = DisplayHistogramState()
     let previewSharpness = PreviewSharpnessState()
     private func refreshPreviewSharpness() {
-        guard PerformanceSettings.shared.sharpnessEnabled, let asset = primarySelectedAsset,
-              let frame = displayedBitmap, frame.assetID == asset.id, frame.scorePreview,
-              (!asset.xmp.hasDevelopEdits || frame.accurate) else { return }
-        previewSharpness.submit(frame.image, asset: asset, revision: displaySourceRevision,
-            previewKind: viewMode.rawValue + (frame.accurate ? "-processed" : "-camera"))
+        guard PerformanceSettings.shared.sharpnessEnabled, var asset = primarySelectedAsset,
+              let frame = displayedBitmap, frame.assetID == asset.id,
+              frame.sourceRevision == displaySourceRevision else { return }
+        if liveDevelopAssetID == asset.id, let liveDevelopXMP { asset.xmp = liveDevelopXMP }
+        guard !isBeforeToggled, comparisonMode == .off else { previewSharpness.clear(); return }
+        let processed = previewPolicy(for: asset, native: true) == .accurate
+        guard !processed || frame.accurate else { previewSharpness.clear(); return }
+        // Frame publication is only a scheduling signal, never the score's pixels.
+        // Native ROI publications therefore cannot masquerade as a full-frame input.
+        previewSharpness.submit(asset: asset, revision: displaySourceRevision, processed: processed)
     }
     @Published public var isHistogramEnabled: Bool = UserDefaults.standard.bool(forKey: "displayHistogramEnabled") {
         didSet {
@@ -111,7 +116,7 @@ public final class AppState: ObservableObject {
             invalidateCollection()
             let old = oldValue.first { $0.id == primarySelectedAssetID }
             let new = allAssets.first { $0.id == primarySelectedAssetID }
-            if old?.xmp.thumbnailDevelopCacheIdentity != new?.xmp.thumbnailDevelopCacheIdentity || old?.dateModified != new?.dateModified {
+            if old?.xmp.thumbnailDevelopCacheIdentity != new?.xmp.thumbnailDevelopCacheIdentity || old?.dateModified != new?.dateModified || old?.fileSize != new?.fileSize || old?.companionURLs != new?.companionURLs {
                 previewSharpness.clear()
             }
         }
@@ -128,7 +133,7 @@ public final class AppState: ObservableObject {
     
     // Live Develop State (Isolated for ultra-fast 120fps live slider interaction)
     @Published public var liveDevelopAssetID: String?
-    @Published public var liveDevelopXMP: XMPMetadata?
+    @Published public var liveDevelopXMP: XMPMetadata? { didSet { previewSharpness.clear() } }
     
     // Sync & Copy/Paste Develop State (Lightroom Classic Workflow)
     @Published public var isAutoSyncEnabled: Bool = false
@@ -145,14 +150,15 @@ public final class AppState: ObservableObject {
     @Published public var cropOverlayStyle: CropOverlayStyle = .grid
     
     // Before / After Comparison State (Lightroom Classic Workflow)
-    @Published public var comparisonMode: ComparisonMode = .off
-    @Published public var isBeforeToggled: Bool = false
+    @Published public var comparisonMode: ComparisonMode = .off { didSet { previewSharpness.clear() } }
+    @Published public var isBeforeToggled: Bool = false { didSet { previewSharpness.clear() } }
     @Published public var splitPosition: CGFloat = 0.5
     
     // View state
     @Published public var viewMode: ViewMode = .grid {
         didSet {
             guard oldValue != viewMode else { return }
+            previewSharpness.clear()
             DispatchQueue.main.async {
                 NSApplication.shared.keyWindow?.makeFirstResponder(nil)
             }
@@ -178,6 +184,7 @@ public final class AppState: ObservableObject {
             guard oldValue != isNativeHighlightsEnabled else { return }
             UserDefaults.standard.set(isNativeHighlightsEnabled, forKey: "isNativeHighlightsEnabled")
             NativeHighlightsService.isEnabled = isNativeHighlightsEnabled
+            previewSharpness.clear()
             RAWImageLoader.shared.clearCache()
             InspectionReadyFrameStore.shared.clearAll()
             Task { await ProcessedROICacheService.shared.invalidateForRenderingPolicyChange() }
