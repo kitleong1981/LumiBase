@@ -324,6 +324,10 @@ public final class AppState: ObservableObject {
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
+            // Local monitors are app-wide: Settings and other windows own their keys.
+            guard let window = event.window, window.isKeyWindow,
+                  self.photoKeyboardSurfaces.allObjects.contains(where: { $0.window === window }),
+                  window.attachedSheet == nil else { return event }
             if self.handleGlobalKeyEvent(event) {
                 return nil
             }

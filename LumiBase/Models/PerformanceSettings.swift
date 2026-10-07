@@ -68,5 +68,45 @@ struct PerformanceSettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped).padding().frame(width: 560, height: 520)
+            .background(SettingsEscapeSurface())
     }
+}
+
+/// Window-scoped Escape handling; preserve native editor and tracking-menu cancellation.
+private struct SettingsEscapeSurface: NSViewRepresentable {
+    final class Surface: NSView {
+        private var monitor: Any?
+        private var observers: [NSObjectProtocol] = []
+        private var trackingMenus = 0
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            removeMonitor()
+            guard window != nil else { return }
+            for name in [NSMenu.didBeginTrackingNotification, NSMenu.didEndTrackingNotification] {
+                observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    guard let self else { return }
+                    self.trackingMenus = max(0, self.trackingMenus + (name == NSMenu.didBeginTrackingNotification ? 1 : -1))
+                })
+            }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, let window = self.window, window.isKeyWindow,
+                      event.window === window, event.keyCode == 53,
+                      event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+                      window.attachedSheet == nil, self.trackingMenus == 0 else { return event }
+                if window.firstResponder is NSTextView || window.firstResponder is NSTextField { return event }
+                window.performClose(nil)
+                return nil
+            }
+        }
+        func removeMonitor() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers.removeAll(); trackingMenus = 0
+        }
+    }
+    func makeNSView(context: Context) -> Surface { Surface() }
+    func updateNSView(_ view: Surface, context: Context) {}
+    static func dismantleNSView(_ view: Surface, coordinator: ()) { view.removeMonitor() }
 }
