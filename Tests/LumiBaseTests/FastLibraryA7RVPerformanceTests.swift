@@ -12,7 +12,8 @@ final class FastLibraryA7RVPerformanceTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["LUMIBASE_FAST_LIBRARY_BENCHMARK"] == "1" else {
             throw XCTSkip("Opt in with LUMIBASE_FAST_LIBRARY_BENCHMARK=1; originals are read-only")
         }
-        let folder = URL(fileURLWithPath: "/Volumes/Extreme SSD/Working/2026.10.02-05 Hot Air Ballon Festival/A7RV", isDirectory: true)
+        guard let fixture = ProcessInfo.processInfo.environment["LUMIBASE_A7RV_FIXTURE"] else { throw XCTSkip("Set LUMIBASE_A7RV_FIXTURE to a read-only paired A7RV folder") }
+        let folder = URL(fileURLWithPath: fixture, isDirectory: true)
         guard FileManager.default.fileExists(atPath: folder.path) else { throw XCTSkip("Exact A7RV folder is not mounted") }
         let names = ["DSC01063", "DSC01442", "DSC01715", "DSC01981"]
         let assets: [PhotoAsset] = try names.map { name in

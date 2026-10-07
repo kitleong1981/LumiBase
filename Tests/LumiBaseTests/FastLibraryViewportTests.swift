@@ -14,7 +14,8 @@ private struct FastViewport: View {
 final class FastLibraryViewportTests: XCTestCase {
     @MainActor func testWarmCameraSelectionNeverPresentsEmptyOrWrongPhoto() async throws {
         guard ProcessInfo.processInfo.environment["LUMIBASE_VIEWPORT_PROBE"] == "1" else { throw XCTSkip("Read-only mounted A7RV handoff probe") }
-        let folder = URL(fileURLWithPath: "/Volumes/Extreme SSD/Working/2026.10.02-05 Hot Air Ballon Festival/A7RV")
+        guard let fixture = ProcessInfo.processInfo.environment["LUMIBASE_A7RV_FIXTURE"] else { throw XCTSkip("Set LUMIBASE_A7RV_FIXTURE to a read-only paired A7RV folder") }
+        let folder = URL(fileURLWithPath: fixture)
         guard FileManager.default.fileExists(atPath: folder.path) else { throw XCTSkip("A7RV not mounted") }
         let assets = await Task.detached { FolderScanner.quickScan(url: folder) }.value
         XCTAssertEqual(assets.count, 739)
@@ -67,7 +68,8 @@ final class FastLibraryViewportTests: XCTestCase {
     }
     @MainActor func testLibraryHoldPublishesNativeJPEGThenReleaseReturnsFit() async throws {
         guard ProcessInfo.processInfo.environment["LUMIBASE_VIEWPORT_PROBE"] == "1" else { throw XCTSkip("Read-only A7RV native click probe") }
-        let folder = URL(fileURLWithPath: "/Volumes/Extreme SSD/Working/2026.10.02-05 Hot Air Ballon Festival/A7RV")
+        guard let fixture = ProcessInfo.processInfo.environment["LUMIBASE_A7RV_FIXTURE"] else { throw XCTSkip("Set LUMIBASE_A7RV_FIXTURE to a read-only paired A7RV folder") }
+        let folder = URL(fileURLWithPath: fixture)
         guard FileManager.default.fileExists(atPath: folder.path) else { throw XCTSkip("A7RV not mounted") }
         let assets = await Task.detached { FolderScanner.quickScan(url: folder) }.value
         let state = AppState(); state.isHistogramEnabled = false; state.allAssets = assets
@@ -147,7 +149,8 @@ final class FastLibraryViewportTests: XCTestCase {
 
     @MainActor func testLargeA7RVViewportScrollAndModeChanges() async throws {
         guard ProcessInfo.processInfo.environment["LUMIBASE_VIEWPORT_PROBE"] == "1" else { throw XCTSkip("Read-only mounted A7RV viewport probe") }
-        let folder = URL(fileURLWithPath: "/Volumes/Extreme SSD/Working/2026.10.02-05 Hot Air Ballon Festival/A7RV")
+        guard let fixture = ProcessInfo.processInfo.environment["LUMIBASE_A7RV_FIXTURE"] else { throw XCTSkip("Set LUMIBASE_A7RV_FIXTURE to a read-only paired A7RV folder") }
+        let folder = URL(fileURLWithPath: fixture)
         guard FileManager.default.fileExists(atPath: folder.path) else { throw XCTSkip("A7RV not mounted") }
         let assets = await Task.detached { FolderScanner.quickScan(url: folder) }.value
         XCTAssertGreaterThan(assets.count, 300)

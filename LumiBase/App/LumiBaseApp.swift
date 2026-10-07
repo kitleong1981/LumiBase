@@ -17,6 +17,7 @@ struct LumiBaseApp: App {
     }
     
     var body: some Scene {
+        Settings { PerformanceSettingsView(settings: .shared) }
         WindowGroup(appTitleWithVersion) {
             MainLayoutView()
                 .frame(minWidth: 900, minHeight: 600)

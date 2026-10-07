@@ -1,5 +1,11 @@
 # LumiBase
 
+## Fast Library 1.14.7：Library / Develop 與原生 Settings
+
+保留已接受的 Fast Library 簡化 UI、相機 JPEG 快速預覽與安全背景 Trash。按 **⌘,** 開啟原生 Settings → **Performance / Cache**：Library JPEG ROI 實驗可選 OFF（新偏好設定預設）／前後各 1／前後各 2，另選 64／128／256 MiB 預算，查看用量及清空快取。明確選擇會在重啟後保留；快取預算不是 app + helper RSS 上限，完整 JPEG 解碼仍有瞬間記憶體尖峰。暖 native hit 不一定較慢，請保持實驗 opt-in。
+
+詳見 [1.14.7 設定、限制與可攜式驗證](docs/1.14.7-fast-library-zhTW.md)。
+
 > **Native macOS Digital Asset Manager (DAM) for Camera RAW & XMP workflows on Apple Silicon.**
 
 LumiBase 是一套專為 macOS (特別是 Apple Silicon M 系列晶片) 打造的高效能 RAW 相片資產管理軟體。提供如 Adobe Lightroom Classic 般的直覺介面、秒級選圖反應、精確的 Adobe Camera RAW 色彩還原，以及非破壞性的雙向 XMP Sidecar 中繼資料同步。

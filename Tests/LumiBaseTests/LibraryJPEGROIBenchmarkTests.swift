@@ -5,18 +5,24 @@ import Darwin
 @testable import LumiBase
 
 final class LibraryJPEGROIBenchmarkTests: XCTestCase {
+    private var previousHelper: String?
     override func setUp() {
         super.setUp()
-        setenv("LUMIBASE_JPEG_ROI_HELPER", FileManager.default.currentDirectoryPath + "/.build/release/LumiBaseJPEGROIHelper", 1)
+        previousHelper = ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_HELPER"]
+        if previousHelper == nil { setenv("LUMIBASE_JPEG_ROI_HELPER", FileManager.default.currentDirectoryPath + "/.build/release/LumiBaseJPEGROIHelper", 1) }
     }
-    override func tearDown() { unsetenv("LUMIBASE_JPEG_ROI_HELPER"); super.tearDown() }
+    override func tearDown() {
+        if let previousHelper { setenv("LUMIBASE_JPEG_ROI_HELPER", previousHelper, 1) } else { unsetenv("LUMIBASE_JPEG_ROI_HELPER") }
+        super.tearDown()
+    }
     private func rss() -> UInt64 {
         var info = mach_task_basic_info(); var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &info) { $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count) } }
         return result == KERN_SUCCESS ? info.resident_size : 0
     }
     private func inputs() throws -> [PhotoAsset] {
-        let folder = URL(fileURLWithPath: "/Volumes/Extreme SSD/Working/2026.10.02-05 Hot Air Ballon Festival/A7RV")
+        guard let path = ProcessInfo.processInfo.environment["LUMIBASE_A7RV_FIXTURE"] else { throw XCTSkip("Set LUMIBASE_A7RV_FIXTURE to a read-only paired fixture folder") }
+        let folder = URL(fileURLWithPath: path)
         return try ["DSC01442.JPG", "DSC01443.JPG", "DSC01444.JPG", "DSC01445.JPG", "DSC01446.JPG"].map { name in
             let url = folder.appendingPathComponent(name)
             guard FileManager.default.fileExists(atPath: url.path) else { throw XCTSkip("Read-only benchmark source missing: \(name)") }
@@ -29,9 +35,63 @@ final class LibraryJPEGROIBenchmarkTests: XCTestCase {
         guard let path = ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_REPORT"] else { return }
         try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: path))
     }
+    @MainActor func testReadOnlyDynamicFolderSettingsAndForeground() async throws {
+        guard ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_BENCH"] == "dynamic",
+              let path = ProcessInfo.processInfo.environment["LUMIBASE_A7RV_FIXTURE"] else { throw XCTSkip("Explicit dynamic-folder read-only settings probe") }
+        let assets = FolderScanner.quickScan(url: URL(fileURLWithPath: path))
+        XCTAssertGreaterThan(assets.count, 5)
+        let settings = PerformanceSettings.shared
+        let oldRadius = settings.roiRadius, oldBudget = settings.cacheBudgetMiB
+        settings.roiRadius = 0
+        defer { settings.roiRadius = oldRadius; settings.cacheBudgetMiB = oldBudget; settings.clearCache() }
+        let state = AppState(preloader: PreviewPreloader(observeMemoryPressure: false))
+        state.workspaceMode = .library; state.isHistogramEnabled = false; state.isFilmstripVisible = false
+        state.allAssets = assets; state.selectAsset(assets[assets.count / 2]); state.viewMode = .loupe
+        let host = NSHostingView(rootView: LoupeView(appState: state))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1100, height: 850), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        func surface(_ v: NSView) -> InspectionSurface.Surface? { if let s = v as? InspectionSurface.Surface { return s }; return v.subviews.compactMap(surface).first }
+        try await Task.sleep(nanoseconds: 700_000_000)
+        settings.roiRadius = 1
+        NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleZoom"), object: nil)
+        try await Task.sleep(nanoseconds: 1_700_000_000)
+        settings.roiRadius = 2; settings.cacheBudgetMiB = 128
+        try await Task.sleep(nanoseconds: 1_700_000_000)
+        XCTAssertLessThanOrEqual(LibraryJPEGROICache.shared.entryCount, 4)
+        XCTAssertGreaterThan(LibraryJPEGROICache.shared.bytes, 0)
+        settings.cacheBudgetMiB = 64
+        XCTAssertLessThanOrEqual(LibraryJPEGROICache.shared.bytes, 64 * 1024 * 1024)
+        settings.clearCache(); XCTAssertEqual(LibraryJPEGROICache.shared.bytes, 0)
+        settings.cacheBudgetMiB = 128
+        let ordered = state.displayedAssets
+        let middle = try XCTUnwrap(ordered.firstIndex { $0.id == state.primarySelectedAssetID })
+        var rows: [[String: Any]] = []
+        for step in [1, 2, 1, -1] {
+            let selected = ordered[middle + step]
+            state.selectAsset(selected)
+            try await Task.sleep(nanoseconds: 1_500_000_000); host.layoutSubtreeIfNeeded()
+            let owner = try XCTUnwrap(surface(host)?.owner)
+            XCTAssertEqual(owner.presentedAssetID, selected.id)
+            XCTAssertTrue(owner.hasPresentedImage); XCTAssertFalse(owner.presentsSpinner)
+            XCTAssertTrue(owner.presentedZoomed); XCTAssertTrue(owner.presentedNative)
+            XCTAssertLessThanOrEqual(LibraryJPEGROICache.shared.bytes, 128 * 1024 * 1024)
+            rows.append(["step":step,"rss":rss(),"cacheBytes":LibraryJPEGROICache.shared.bytes,"entries":LibraryJPEGROICache.shared.entryCount])
+        }
+        NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleZoom"), object: nil)
+        try await Task.sleep(nanoseconds: 250_000_000); host.layoutSubtreeIfNeeded()
+        XCTAssertFalse(surface(host)?.owner?.presentedZoomed ?? true)
+        XCTAssertEqual(LibraryJPEGROICache.shared.bytes, 0)
+        try output(["dynamicAssetCount": assets.count,"rows":rows,"releasedFitBytes":LibraryJPEGROICache.shared.bytes])
+    }
+
     @MainActor func testReadOnlyHostedComparison() async throws {
-        guard let mode = ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_BENCH"], ["off", "on"].contains(mode) else { throw XCTSkip("Explicit read-only benchmark opt-in") }
-        let enabled = mode == "on", assets = try inputs()
+        guard let mode = ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_BENCH"], ["off", "on", "on2"].contains(mode) else { throw XCTSkip("Explicit read-only benchmark opt-in") }
+        let enabled = mode != "off", assets = try inputs()
+        let oldRadius = PerformanceSettings.shared.roiRadius, oldBudget = PerformanceSettings.shared.cacheBudgetMiB
+        PerformanceSettings.shared.roiRadius = 0
+        defer { PerformanceSettings.shared.roiRadius = oldRadius; PerformanceSettings.shared.cacheBudgetMiB = oldBudget }
+        PerformanceSettings.shared.cacheBudgetMiB = Int(ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_BUDGET"] ?? "64") ?? 64
         let fast = ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_FAST"] == "1"
         let state = AppState(preloader: PreviewPreloader(observeMemoryPressure: false))
         state.workspaceMode = .library; state.isHistogramEnabled = false; state.isFilmstripVisible = false
@@ -49,7 +109,7 @@ final class LibraryJPEGROIBenchmarkTests: XCTestCase {
             let now = ProcessInfo.processInfo.systemUptime; heartbeats.append((now - previous) * 1000); previous = now; peak = max(peak, self.rss())
         }
         RunLoop.main.add(timer, forMode: .common); defer { timer.invalidate() }
-        if enabled { NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleLibraryJPEGROI"), object: nil) }
+        PerformanceSettings.shared.roiRadius = enabled ? (mode == "on2" ? 2 : 1) : 0
         NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleZoom"), object: nil)
         try await Task.sleep(nanoseconds: 1_700_000_000)
         var rows: [[String: Any]] = []; var blackout = 0; var mismatches = 0; var geometryErrors = 0
@@ -69,7 +129,7 @@ final class LibraryJPEGROIBenchmarkTests: XCTestCase {
                 }
             }
             XCTAssertNotNil(first); XCTAssertNotNil(full)
-            rows.append(["index":index, "firstNativeMS":first ?? -1, "fullNativeMS":full ?? -1, "firstWasROI":firstROI, "hits":LibraryJPEGROICache.shared.hits - hits, "workerInFlightAtSelection":workerInFlight, "rss":rss(), "cacheBytes":LibraryJPEGROICache.shared.bytes])
+            rows.append(["index":index, "firstNativeMS":first ?? -1, "fullNativeMS":full ?? -1, "firstWasROI":firstROI, "hits":LibraryJPEGROICache.shared.hits - hits, "workerInFlightAtSelection":workerInFlight, "rss":rss(), "cacheBytes":LibraryJPEGROICache.shared.bytes, "cacheEntries":LibraryJPEGROICache.shared.entryCount])
             try await Task.sleep(nanoseconds: fast ? 50_000_000 : 1_400_000_000)
         }
         let sorted = heartbeats.sorted(), p95 = sorted.isEmpty ? 0 : sorted[Int(Double(sorted.count - 1) * 0.95)]
@@ -80,6 +140,9 @@ final class LibraryJPEGROIBenchmarkTests: XCTestCase {
     }
     @MainActor func testReadOnlyHostedPanOutsideROIAndRelease() async throws {
         guard ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_BENCH"] == "pan" else { throw XCTSkip("Explicit read-only pan benchmark opt-in") }
+        let oldRadius = PerformanceSettings.shared.roiRadius
+        PerformanceSettings.shared.roiRadius = 0
+        defer { PerformanceSettings.shared.roiRadius = oldRadius }
         let assets = try inputs(), state = AppState(preloader: PreviewPreloader(observeMemoryPressure: false))
         state.workspaceMode = .library; state.isHistogramEnabled = false; state.isFilmstripVisible = false
         state.allAssets = assets; state.selectAsset(assets[1]); state.viewMode = .loupe
@@ -139,17 +202,21 @@ final class LibraryJPEGROIBenchmarkTests: XCTestCase {
     func testReadOnlyOwnedBufferSteadyCycles() async throws {
         guard ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_BENCH"] == "memory" else { throw XCTSkip("Explicit read-only memory benchmark opt-in") }
         let assets = try inputs(), cache = LibraryJPEGROICache()
+        let radius = min(2, max(1, Int(ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_RADIUS"] ?? "1") ?? 1))
+        let budget = [64, 128, 256].contains(Int(ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_BUDGET"] ?? "64") ?? 64) ? (Int(ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_BUDGET"] ?? "64") ?? 64) : 64
+        cache.configure(budget: budget * 1024 * 1024, maxEntries: radius * 2)
         let baseline = rss(); var rows: [[String: Any]] = []
         for cycle in 0..<16 {
             let center = CGPoint(x: 0.45 + Double(cycle % 3) * 0.03, y: 0.5)
-            await cache.preload([assets[cycle % 5], assets[(cycle + 1) % 5]], geometry: .init(center: center, viewport: CGSize(width: 1100, height: 850), backing: 2))
+            await cache.preload((0..<(radius * 2)).map { assets[(cycle + $0) % 5] }, geometry: .init(center: center, viewport: CGSize(width: 1100, height: 850), backing: 2))
             try await Task.sleep(nanoseconds: 50_000_000)
             rows.append(["cycle":cycle, "rss":rss(), "cacheBytes":cache.bytes, "ownedBytes":LibraryJPEGROICache.ownedBytes])
-            XCTAssertLessThanOrEqual(cache.bytes, 64 * 1024 * 1024)
+            XCTAssertLessThanOrEqual(cache.bytes, budget * 1024 * 1024)
+            XCTAssertLessThanOrEqual(cache.entryCount, radius * 2)
         }
         cache.cancel(clear: true)
         try await Task.sleep(nanoseconds: 100_000_000)
-        try output(["baselineRSS":baseline, "releasedRSS":rss(), "releasedOwnedBytes":LibraryJPEGROICache.ownedBytes, "rows":rows, "note":"RSS includes allocator/ImageIO retention. Exactly 2 ROI providers max in cache, no retained full JPEG by these providers."])
+        try output(["baselineRSS":baseline, "releasedRSS":rss(), "releasedOwnedBytes":LibraryJPEGROICache.ownedBytes, "rows":rows, "note":"RSS includes allocator/ImageIO retention. Configured 2 or 4 ROI providers max in cache, no retained full JPEG by these providers."])
         XCTAssertEqual(LibraryJPEGROICache.ownedBytes, 0)
         let settled = rows.suffix(8).compactMap { $0["rss"] as? UInt64 }
         XCTAssertLessThan((settled.max() ?? 0) - (settled.min() ?? 0), 8 * 1024 * 1024, "Repeated cycles must plateau, not retain every decode")

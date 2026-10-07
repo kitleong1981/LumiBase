@@ -567,8 +567,9 @@ public struct LoupeView: View {
     @State private var inspection = InspectionState()
     @State private var backingScale: CGFloat = 2
     @State private var roiPrototypeToggle = InspectionROIToggle()
-    // Session-only: never enables an existing profile or Develop RAW ROI implicitly.
-    @State private var libraryJPEGROIEnabled = false
+    // Explicit persisted opt-in; never enables Develop RAW ROI implicitly.
+    @ObservedObject private var performanceSettings = PerformanceSettings.shared
+    private var libraryJPEGROIEnabled: Bool { performanceSettings.roiRadius > 0 }
     @State private var libraryJPEGROITask: Task<Void, Never>?
     @State private var previousLibraryROIIndex: Int?
     private var libraryJPEGGeometry: LibraryJPEGROICache.Geometry {
@@ -1025,15 +1026,8 @@ public struct LoupeView: View {
                         .help("Toggle Zoom 100% / Fit (hold / double-click; Z)")
 
                         if appState.workspaceMode == .library {
-                            Button { toggleLibraryJPEGROI() } label: {
-                                Text(libraryJPEGROIEnabled ? "JPEG ROI ±1 ON · EXP" : "JPEG ROI ±1 OFF · EXP")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(LightroomTheme.accentYellow)
-                                    .padding(.horizontal, 7).padding(.vertical, 4)
-                                    .background(Color.black.opacity(0.6)).cornerRadius(4)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Experimental Library JPEG ±1 ROI cache. Default OFF; full JPEG decode may increase peak memory. Not Develop RAW ROI.")
+                            SettingsLink { Image(systemName: "gearshape") }
+                                .help("Library performance and cache settings (⌘,)")
                         }
                         if appState.workspaceMode == .develop {
                             Button {
@@ -1293,6 +1287,14 @@ public struct LoupeView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseToggleZoom"))) { _ in
             toggleZoom()
+        }
+        .onChange(of: performanceSettings.roiRadius) { _, _ in
+            libraryJPEGROITask?.cancel()
+            if let asset = appState.primarySelectedAsset { scheduleLibraryJPEGROI(from: asset) }
+        }
+        .onChange(of: performanceSettings.cacheBudgetMiB) { _, _ in
+            libraryJPEGROITask?.cancel()
+            if let asset = appState.primarySelectedAsset { scheduleLibraryJPEGROI(from: asset) }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseToggleLibraryJPEGROI"))) { _ in
             toggleLibraryJPEGROI()
@@ -1852,7 +1854,7 @@ public struct LoupeView: View {
     @State private var cameraNeighborTask: Task<Void, Never>?
     private func toggleLibraryJPEGROI() {
         guard appState.workspaceMode == .library else { return }
-        libraryJPEGROIEnabled.toggle()
+        performanceSettings.roiRadius = libraryJPEGROIEnabled ? 0 : 1
         libraryJPEGROITask?.cancel()
         LibraryJPEGROICache.shared.cancel(clear: true)
         if libraryJPEGROIEnabled, is100PercentZoom, display.native, !isLoading,
@@ -1865,7 +1867,7 @@ public struct LoupeView: View {
         guard let index = assets.firstIndex(where: { $0.id == selected.id }) else { return }
         let direction = previousLibraryROIIndex.map { index >= $0 ? 1 : -1 } ?? 1
         previousLibraryROIIndex = index
-        let neighbors = [index + direction, index - direction].filter { assets.indices.contains($0) }.map { assets[$0] }
+        let neighbors = (1...max(1, performanceSettings.roiRadius)).flatMap { [index + $0 * direction, index - $0 * direction] }.filter { assets.indices.contains($0) }.map { assets[$0] }
         let geometry = libraryJPEGGeometry
         libraryJPEGROITask?.cancel()
         libraryJPEGROITask = Task { await LibraryJPEGROICache.shared.preload(neighbors, geometry: geometry) }

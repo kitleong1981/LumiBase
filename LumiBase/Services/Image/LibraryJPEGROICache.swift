@@ -21,7 +21,17 @@ final class LibraryJPEGROICache: @unchecked Sendable {
     private static func account(_ delta: Int) { ownershipLock.lock(); owned += delta; ownershipLock.unlock() }
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "com.lumibase.library.jpeg-roi.experimental", qos: .utility)
-    private let budget: Int
+    private var budget: Int
+    private var maxEntries = 2
+    var entryCount: Int { lock.lock(); defer { lock.unlock() }; return entries.count }
+    func configure(budget: Int, maxEntries: Int) {
+        lock.lock(); defer { lock.unlock() }
+        generation &+= 1
+        self.budget = max(0, budget)
+        self.maxEntries = min(4, max(0, maxEntries))
+        while entries.count > self.maxEntries || entries.reduce(0, { $0 + $1.frame.cost }) > self.budget { entries.removeFirst() }
+    }
+    private func limits() -> (Int, Int) { lock.lock(); defer { lock.unlock() }; return (budget, maxEntries) }
     private var entries: [Entry] = []
     private var generation: UInt64 = 0
     private var hitCount = 0
@@ -69,7 +79,7 @@ final class LibraryJPEGROICache: @unchecked Sendable {
         guard !Task.isCancelled else { return }
         cancel()
         let revision = token()
-        for asset in assets.prefix(2) {
+        for asset in assets.prefix(limits().1) {
             guard !Task.isCancelled, current(revision) else { return }
             guard let version = Self.version(asset) else { continue }
             if contains(asset, version: version, geometry: geometry) { continue }
@@ -87,7 +97,7 @@ final class LibraryJPEGROICache: @unchecked Sendable {
                     defer { self.worker(false) }
                     let result: Frame? = autoreleasepool {
                         guard self.current(revision), let url = Self.jpegURL(asset) else { return nil }
-                        return Self.decode(url, geometry: geometry, budget: self.budget)
+                        return Self.decode(url, geometry: geometry, budget: self.limits().0)
                     }
                     continuation.resume(returning: result)
                 }
@@ -103,7 +113,7 @@ final class LibraryJPEGROICache: @unchecked Sendable {
         guard generation == revision, frame.cost <= budget else { return }
         entries.removeAll { $0.assetID == asset.id }
         entries.append(Entry(assetID: asset.id, snapshot: Self.snapshot(asset), version: version, geometry: geometry, frame: frame))
-        while entries.count > 2 || entries.reduce(0, { $0 + $1.frame.cost }) > budget { entries.removeFirst() }
+        while entries.count > maxEntries || entries.reduce(0, { $0 + $1.frame.cost }) > budget { entries.removeFirst() }
     }
     private static func decode(_ url: URL, geometry: Geometry, budget: Int) -> Frame? {
         guard geometry.viewport.width > 1, geometry.viewport.height > 1 else { return nil }

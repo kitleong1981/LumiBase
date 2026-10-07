@@ -5,12 +5,21 @@ import SwiftUI
 @testable import LumiBase
 
 final class LibraryJPEGROITests: XCTestCase {
+    private var previousHelper: String?
     override func setUp() {
         super.setUp()
-        setenv("LUMIBASE_JPEG_ROI_HELPER", FileManager.default.currentDirectoryPath + "/.build/release/LumiBaseJPEGROIHelper", 1)
+        previousHelper = ProcessInfo.processInfo.environment["LUMIBASE_JPEG_ROI_HELPER"]
+        if previousHelper == nil { setenv("LUMIBASE_JPEG_ROI_HELPER", FileManager.default.currentDirectoryPath + "/.build/release/LumiBaseJPEGROIHelper", 1) }
     }
-    override func tearDown() { unsetenv("LUMIBASE_JPEG_ROI_HELPER"); super.tearDown() }
+    override func tearDown() {
+        if let previousHelper { setenv("LUMIBASE_JPEG_ROI_HELPER", previousHelper, 1) } else { unsetenv("LUMIBASE_JPEG_ROI_HELPER") }
+        super.tearDown()
+    }
     @MainActor func testHostedOptInNeighborHitsBeforeFullNative() async throws {
+        let oldRadius = PerformanceSettings.shared.roiRadius
+        let oldBudget = PerformanceSettings.shared.cacheBudgetMiB
+        PerformanceSettings.shared.roiRadius = 0
+        defer { PerformanceSettings.shared.roiRadius = oldRadius; PerformanceSettings.shared.cacheBudgetMiB = oldBudget }
         let root = inspectionTestScratchURL("jpeg-roi-host-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -46,6 +55,36 @@ final class LibraryJPEGROITests: XCTestCase {
         XCTAssertFalse(target.owner?.presentedZoomed ?? true)
         XCTAssertNil(target.owner?.presentedSourceRect)
         XCTAssertEqual(LibraryJPEGROICache.shared.bytes, 0, "Fit clears experiment without relatching zoom")
+    }
+
+    func testFourNeighborEntriesAndImmediateTrim() async throws {
+        let root = inspectionTestScratchURL("jpeg-roi-four-\(UUID())")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1800, pixelsHigh: 1200, bitsPerSample: 8, samplesPerPixel: 3, hasAlpha: false, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let data = try XCTUnwrap(rep.representation(using: .jpeg, properties: [:]))
+        let assets = try (0..<4).map { i -> PhotoAsset in
+            let url = root.appendingPathComponent("\(i).JPG"); try data.write(to: url); return PhotoAsset(fileURL: url)
+        }
+        let cache = LibraryJPEGROICache()
+        cache.configure(budget: 64 * 1024 * 1024, maxEntries: 4)
+        let geometry = LibraryJPEGROICache.Geometry(center: CGPoint(x: 0.5, y: 0.5), viewport: CGSize(width: 300, height: 200), backing: 2)
+        await cache.preload(assets, geometry: geometry)
+        XCTAssertEqual(cache.entryCount, 4)
+        XCTAssertLessThanOrEqual(cache.bytes, 64 * 1024 * 1024)
+        for asset in assets { XCTAssertNotNil(cache.match(asset, geometry: geometry)) }
+        let single = cache.bytes / 4
+        cache.configure(budget: single, maxEntries: 2)
+        XCTAssertEqual(cache.entryCount, 1)
+        XCTAssertEqual(cache.bytes, single)
+        XCTAssertNil(cache.match(assets[0], geometry: geometry))
+        XCTAssertNotNil(cache.match(assets[3], geometry: geometry))
+        let queued = Task { await cache.preload(assets, geometry: geometry) }
+        try await Task.sleep(nanoseconds: 1_000_000)
+        cache.configure(budget: single, maxEntries: 0)
+        await queued.value
+        XCTAssertEqual(cache.bytes, 0)
+        XCTAssertEqual(cache.entryCount, 0)
     }
 
     func testBudgetEvictionStaleSourceAndCanceledQueue() async throws {
