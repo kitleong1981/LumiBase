@@ -36,6 +36,22 @@ final class PreviewSharpnessTests: XCTestCase {
         XCTAssertEqual(state.previewSharpness.identity, identity)
         XCTAssertEqual(state.previewSharpness.score, score)
         state.previewSharpness.clear()
+        ImageWorkDiagnostics.start(); defer { ImageWorkDiagnostics.stop() }
+        let native = await ThumbnailLoader.shared.loadNativeCameraJPEG(for: asset)
+        XCTAssertNotNil(native)
+        state.previewSharpness.submit(asset: asset, revision: 2, processed: false)
+        let reuseEnd = ProcessInfo.processInfo.systemUptime+10
+        while state.previewSharpness.score == nil && ProcessInfo.processInfo.systemUptime < reuseEnd { try await Task.sleep(nanoseconds: 2_000_000) }
+        XCTAssertNotNil(state.previewSharpness.score)
+        // NSCache may evict under the full suite's memory pressure. Assert exact
+        // accounting for the observed reuse/decode path, not guaranteed retention.
+        if ImageWorkDiagnostics.snapshot()["sharpnessNativeReuse", default: 0] > 0 {
+            XCTAssertEqual(state.previewSharpness.ownedPixelBytes, w*h)
+        } else {
+            XCTAssertEqual(state.previewSharpness.ownedPixelBytes, w*h*5)
+            XCTAssertGreaterThan(ImageWorkDiagnostics.snapshot()["sharpnessFullJPEGDecode", default: 0], 0)
+        }
+        state.previewSharpness.clear()
     }
 
     @MainActor func testFullProcessedCropUsesEditedOutputAndEditCancellation() async throws {

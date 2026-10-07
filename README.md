@@ -1,14 +1,14 @@
 # LumiBase
 
-## Fast Library 1.14.7：已編輯預覽、Sharpness 與原生 Settings
+## Fast Library 1.14.9：全解析度 Sharpness 與原生 Settings
 
 Develop 返回 Library，Loupe／Grid／Filmstrip 預設顯示處理後的曝光、色調與裁切；未編輯照片仍用快速 camera JPEG，星等／旗標不是修圖。已編輯 RAW 100% 對選取照片使用準確 native pipeline，未裁切可用 processed ROI，裁切走 full processed render。RAW-only Fit 使用內嵌 JPEG；無足尺寸 JPEG 時，100% 對當前照片 on-demand RAW 解碼，不把 proxy 冒充原生。
 
-**⌘, → Sharpness / Preview — Experimental** 可開啟右下角 **Sharpness · Preview**（預設 OFF、保留偏好）。只分析已顯示全畫面預覽、背景序列且不額外解碼 RAW；固定 1024px Laplacian 最銳利 10% blocks 的相對指標，不是對焦信心／自動淘汰，也不能套用 full-resolution Python 門檻。真實 hosted 三輪相同 trace first-ready 中位 OFF 18.25 / ON 19.82 ms；非快取計算 wall 中位 2.16 ms、最大 8.09 ms，詳細 CPU／RSS／heartbeat 與限制見文件。
+**⌘, → Sharpness / Full resolution — Experimental** 可開啟右下角 **Sharpness · Full resolution**（新偏好預設 OFF、既有 ON 保留）。分析選取照片實際原生全圖，不是 1600px proxy 放大或 viewport ROI；已編輯照片分析相同修圖／裁切的 full processed output，並標示來源和實際像素尺寸。保留 64px Laplacian 最銳利 10% blocks 相對指標，不是對焦信心／自動淘汰。可能額外解碼完整 JPEG 或選取 RAW，增加 CPU／瞬間 RAM；顯示畫面不等待 score。實測原生 9504×6336 JPEG：1801 **131.42**、1803 **439.53**，詳細三輪 hosted OFF／ON 與代價見新版本文件。舊 122–131ms 診斷不是新版本保證。
 
 保留已接受的 Fast Library 簡化 UI、相機 JPEG 快速預覽與安全背景 Trash。按 **⌘,** 開啟原生 Settings → **Performance / Cache**：Library JPEG ROI 實驗可選 OFF（新偏好設定預設）／前後各 1／前後各 2，另選 64／128／256 MiB 預算，查看用量及清空快取。明確選擇會在重啟後保留；快取預算不是 app + helper RSS 上限，完整 JPEG 解碼仍有瞬間記憶體尖峰。暖 native hit 不一定較慢，請保持實驗 opt-in。
 
-詳見 [1.14.7 設定、限制與可攜式驗證](docs/1.14.7-fast-library-zhTW.md)。
+詳見 [1.14.9 全圖指標、效能與驗證](docs/1.14.9-fast-library-zhTW.md)；[1.14.8 Settings Escape 修正](docs/1.14.8-fast-library-zhTW.md)保留。
 
 > **Native macOS Digital Asset Manager (DAM) for Camera RAW & XMP workflows on Apple Silicon.**
 

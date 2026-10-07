@@ -353,7 +353,7 @@ public actor ThumbnailLoader {
 
     /// Selected-score-only utility path. Never queues on native presentation and
     /// never inserts a new full bitmap into the native cache. Caller owns its lifetime.
-    nonisolated static func sharpnessCameraFullImage(for asset: PhotoAsset, isCurrent: () -> Bool) -> NSImage? {
+    nonisolated static func sharpnessCameraFullImage(for asset: PhotoAsset, isCurrent: () -> Bool) -> (image: NSImage, reusedNative: Bool)? {
         let companions = asset.companionURLs.filter {
             ["jpg", "jpeg"].contains($0.pathExtension.lowercased()) &&
             $0.deletingPathExtension().lastPathComponent == asset.fileURL.deletingPathExtension().lastPathComponent &&
@@ -364,7 +364,7 @@ public actor ThumbnailLoader {
             let info = try? FileManager.default.attributesOfItem(atPath: url.path)
             let key = "native-jpeg-v1|\(url.path)|\((info?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0)|\(info?[.size] as? NSNumber ?? 0)" as NSString
             if let cached = nativeCache.images.object(forKey: key) {
-                ImageWorkDiagnostics.record("sharpnessNativeReuse"); return cached
+                ImageWorkDiagnostics.record("sharpnessNativeReuse"); return (cached, true)
             }
             guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
                   let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -382,7 +382,7 @@ public actor ThumbnailLoader {
                   max(cg.width, cg.height) == max(width, height),
                   min(cg.width, cg.height) == min(width, height), isCurrent() else { continue }
             ImageWorkDiagnostics.record("sharpnessFullJPEGDecode")
-            return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+            return (NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)), false)
         }
         return nil
     }

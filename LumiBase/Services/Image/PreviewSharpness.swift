@@ -89,10 +89,12 @@ private final class SharpnessWorker: @unchecked Sendable {
             job.complete(job.token, cached, (ProcessInfo.processInfo.systemUptime-began)*1000); return
         }
         let loaded: NSImage?
+        var borrowedNative = false
         var source = job.processed ? "Processed" : "Native JPEG"
         if let testFull = job.testFullImage { loaded = testFull; source = "Test full frame" }
         else if !job.processed {
-            loaded = await onQueue { ThumbnailLoader.sharpnessCameraFullImage(for: job.asset, isCurrent: { self.isCurrent(job.token) }) }
+            let camera = await onQueue { ThumbnailLoader.sharpnessCameraFullImage(for: job.asset, isCurrent: { self.isCurrent(job.token) }) }
+            loaded = camera?.image; borrowedNative = camera?.reusedNative ?? false
         } else { loaded = nil }
         var pixels = loaded
         if pixels == nil && (job.processed || job.asset.isRaw) {
@@ -122,7 +124,7 @@ private final class SharpnessWorker: @unchecked Sendable {
         }
         let loadWall = (ProcessInfo.processInfo.systemUptime-began)*1000
         guard isCurrent(job.token), !Task.isCancelled else { return }
-        let fullImage = pixels, sourceLabel = source
+        let fullImage = pixels, sourceLabel = source, usesBorrowedNative = borrowedNative
         let result: FullSharpnessResult? = await onQueue {
             guard self.isCurrent(job.token), let fullImage,
                   let cg = fullImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
@@ -132,7 +134,7 @@ private final class SharpnessWorker: @unchecked Sendable {
             ImageWorkDiagnostics.record("sharpnessCompute")
             let value = FullSharpnessResult(score: score, width: cg.width, height: cg.height, source: sourceLabel,
                 wall: (ProcessInfo.processInfo.systemUptime-start)*1000, cpu: self.cpuMilliseconds()-cpu,
-                loadWall: loadWall, pixelBytes: cg.bytesPerRow*cg.height + cg.width*cg.height)
+                loadWall: loadWall, pixelBytes: (usesBorrowedNative ? 0 : cg.bytesPerRow*cg.height) + cg.width*cg.height)
             self.cache[cacheKey] = value; self.order.removeAll { $0 == cacheKey }; self.order.append(cacheKey)
             if self.order.count > 256 { self.cache.removeValue(forKey: self.order.removeFirst()) }
             return value
@@ -155,7 +157,7 @@ private final class SharpnessWorker: @unchecked Sendable {
     private(set) var totalMilliseconds: Double = 0
     private(set) var fullPixelWidth = 0
     private(set) var fullPixelHeight = 0
-    /// Last job's explicit bitmap + grayscale allocation, not retained RSS.
+    /// Last job's owned bitmap (zero when borrowing native cache) + grayscale, not RSS.
     private(set) var ownedPixelBytes = 0
     private var token = UUID()
     private let worker = SharpnessWorker()
