@@ -38,19 +38,34 @@ final class LibraryJPEGROITests: XCTestCase {
         func surface(_ view: NSView) -> InspectionSurface.Surface? { if let s = view as? InspectionSurface.Surface { return s }; return view.subviews.compactMap(surface).first }
         try await Task.sleep(nanoseconds: 300_000_000); host.layoutSubtreeIfNeeded()
         NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleLibraryJPEGROI"), object: nil)
-        NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleZoom"), object: nil)
+        let target = try XCTUnwrap(surface(host)), fit = try XCTUnwrap(target.owner)
+        let desired = CGPoint(x: 0.34, y: 0.65)
+        let local = CGPoint(x: fit.presentedImagePosition.x + (desired.x - 0.5) * fit.presentedImageSize.width,
+                            y: fit.presentedImagePosition.y + (desired.y - 0.5) * fit.presentedImageSize.height)
+        let point = target.convert(local, to: nil)
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: type == .leftMouseDown ? 1 : 2,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+        }
+        target.mouseDown(with: try event(.leftMouseDown))
         try await Task.sleep(nanoseconds: 1_000_000_000); host.layoutSubtreeIfNeeded()
         XCTAssertGreaterThan(LibraryJPEGROICache.shared.bytes, 0, "actual current-native completion must produce ±1 ROI")
         let hits = LibraryJPEGROICache.shared.hits
         state.selectAsset(assets[2])
         try await Task.sleep(nanoseconds: 30_000_000); host.layoutSubtreeIfNeeded()
-        let target = try XCTUnwrap(surface(host))
         XCTAssertGreaterThan(LibraryJPEGROICache.shared.hits, hits, "selected neighbor must consume actual producer output")
+        let selectedFrame = try XCTUnwrap(target.owner)
+        let sourceRect = selectedFrame.presentedSourceRect ?? selectedFrame.presentedFullExtent
+        let scale = window.backingScaleFactor
+        let clickedPixel = CGPoint(x: selectedFrame.presentedImagePosition.x + (desired.x * 4800 - sourceRect.midX) / scale,
+                                   y: selectedFrame.presentedImagePosition.y - ((1 - desired.y) * 3200 - sourceRect.midY) / scale)
+        XCTAssertEqual(clickedPixel.x, target.bounds.midX, accuracy: 1, "ROI hit/full completion preserves off-center source anchor")
+        XCTAssertEqual(clickedPixel.y, target.bounds.midY, accuracy: 1)
         XCTAssertEqual(target.owner?.presentedAssetID, assets[2].id)
         XCTAssertEqual(target.owner?.presentedFullExtent.size, CGSize(width: 4800, height: 3200))
         XCTAssertTrue(target.owner?.presentedZoomed ?? false)
         XCTAssertTrue(target.owner?.hasPresentedImage ?? false)
-        NotificationCenter.default.post(name: NSNotification.Name("LumiBaseToggleZoom"), object: nil)
+        _ = target.routeCapturedEvent(try event(.leftMouseUp), leftPressed: false)
         try await Task.sleep(nanoseconds: 150_000_000); host.layoutSubtreeIfNeeded()
         XCTAssertFalse(target.owner?.presentedZoomed ?? true)
         XCTAssertNil(target.owner?.presentedSourceRect)

@@ -336,6 +336,26 @@ enum InspectionReadyFrameHandoff {
 }
 
 struct InspectionFrameLayout {
+    // Mirror only the existing crop/straighten output bounds, not its pixel pipeline.
+    // Fit proxies need this native output extent before their full-size raster arrives.
+    static func processedFullExtent(source: CGRect, xmp: XMPMetadata) -> CGRect {
+        guard xmp.hasCrop, !source.isEmpty else { return source }
+        let angle = xmp.cropAngle ?? 0
+        var output = source
+        if abs(angle) > 0.01 {
+            var transform = CGAffineTransform(translationX: source.midX, y: source.midY)
+            transform = transform.rotated(by: CGFloat(-angle * .pi / 180))
+            transform = transform.translatedBy(x: -source.midX, y: -source.midY)
+            output = source.applying(transform)
+        }
+        let top = CGFloat(xmp.cropTop ?? 0), left = CGFloat(xmp.cropLeft ?? 0)
+        let bottom = CGFloat(xmp.cropBottom ?? 1), right = CGFloat(xmp.cropRight ?? 1)
+        if top > 0.001 || left > 0.001 || bottom < 0.999 || right < 0.999 {
+            output = CGRect(x: source.minX + left * source.width, y: source.minY + (1 - bottom) * source.height,
+                width: max(1, (right - left) * source.width), height: max(1, (bottom - top) * source.height))
+        }
+        return CGRect(origin: .zero, size: output.integral.size)
+    }
     var imageSize: CGSize
     var clampSize: CGSize
     var originOffset: CGSize
@@ -388,6 +408,8 @@ struct InspectionSurface: NSViewRepresentable {
     var hasPresentedImage = false
     var presentsSpinner = false
     var presentedImageSize: CGSize = .zero
+    var presentedImagePosition: CGPoint = .zero
+    var presentedHandoffProxy = false
     var presentedFullExtent: CGRect = .zero
     var presentedZoomed = false
     var presentedNative = false
@@ -549,6 +571,9 @@ struct InspectionSurface: NSViewRepresentable {
 /// Full-screen high-res Loupe view for inspecting RAW photos with instant preview switching
 public struct LoupeView: View {
     @ObservedObject var appState: AppState
+    // Native-host scheduler seam: tests may pause the real async selection producer;
+    // resident handoff frames are still loaded and versioned by production loaders.
+    var selectionLoadBarrier: (@MainActor (String?) async -> Void)? = nil
     private var displayForSelectedAsset: InspectionDisplay {
         let cameraVersionCurrent = appState.primarySelectedAsset.map { cameraAssetVersion($0) == displayCameraAssetVersion } ?? false
         return display.owns(assetID: appState.primarySelectedAssetID) && displaySourceVersion == appState.displaySourceRevision &&
@@ -867,9 +892,9 @@ public struct LoupeView: View {
                             down: { point, count in
                                 Logger(subsystem: "com.lumibase.inspection", category: "state").debug("intent count=\(count) loading=\(isLoading) nativeFrame=\(display.native) hasFrame=\(display.image != nil) error=\(imageError != nil)")
                                 if count == 2 { inspection.end(); toggleZoom() }
-                                else if showingHandoffProxy {
-                                    inspection.held = true
-                                } else {
+                                else {
+                                    // Capture the clicked Fit source location before zooming,
+                                    // including the selected asset's resident handoff frame.
                                     inspection.begin(at: point, pixels: pixels, viewport: viewportSize)
                                     InspectionTrace.event("state.held_after_down_callback", state: inspection)
                                 }
@@ -892,7 +917,9 @@ public struct LoupeView: View {
                             presentedAssetID: img == nil ? nil : appState.primarySelectedAssetID,
                             hasPresentedImage: img != nil,
                             presentsSpinner: img == nil && (isLoading || visibleDisplay.image == nil && selectedHandoff == nil),
-                            presentedImageSize: size, presentedFullExtent: fullExtent,
+                            presentedImageSize: size,
+                            presentedImagePosition: layout.imagePosition(viewport: viewportSize, center: clamped.center, sourceRect: sourceRect),
+                            presentedHandoffProxy: showingHandoffProxy, presentedFullExtent: fullExtent,
                             presentedZoomed: inspection.zoomed,
                             presentedNative: !showingHandoffProxy && visibleDisplay.native && !isLoading,
                             presentedSourceRect: sourceRect,
@@ -1496,6 +1523,8 @@ public struct LoupeView: View {
 
     @MainActor
     private func loadSelectedImage() async {
+        if let selectionLoadBarrier { await selectionLoadBarrier(appState.primarySelectedAssetID) }
+        guard !Task.isCancelled else { return }
         let ticket = loadRevision.next()
         libraryJPEGROITask?.cancel()
         LibraryJPEGROICache.shared.cancel(clear: appState.workspaceMode != .library || !is100PercentZoom)
@@ -1789,10 +1818,12 @@ public struct LoupeView: View {
                     return
                 }
                 if let result {
+                    let fitExtent = appState.workspaceMode == .library && renderXMP.hasCrop
+                        ? InspectionFrameLayout.processedFullExtent(source: holder.fullExtent, xmp: renderXMP) : holder.fullExtent
                     InspectionReadyFrameStore.shared.publishFullPreview(asset: asset, xmp: renderXMP,
-                        image: result, fullExtent: holder.fullExtent)
-                    display.accept(result, assetID: targetID, filename: asset.filename, pixels: holder.fullExtent.size,
-                        native: false, ticket: displayTicket, fullExtent: holder.fullExtent,
+                        image: result, fullExtent: fitExtent)
+                    display.accept(result, assetID: targetID, filename: asset.filename, pixels: fitExtent.size,
+                        native: false, ticket: displayTicket, fullExtent: fitExtent,
                         developSettingsIdentity: renderSettingsIdentity)
                 }
             }
@@ -1863,14 +1894,16 @@ public struct LoupeView: View {
                     return
                 }
                 let croppedLibrary = appState.workspaceMode == .library && renderXMP.hasCrop && roiRect == nil
-                let frameExtent = croppedLibrary && native ? CGRect(origin: .zero, size: result?.size ?? .zero) : fresh.fullExtent
+                let frameExtent = croppedLibrary
+                    ? (native ? CGRect(origin: .zero, size: result?.size ?? .zero) : InspectionFrameLayout.processedFullExtent(source: fresh.fullExtent, xmp: renderXMP))
+                    : fresh.fullExtent
                 display.accept(result, assetID: targetID, filename: asset.filename,
-                    pixels: croppedLibrary && native ? (result?.size ?? .zero) : (roiRect.map(\.size) ?? fresh.fullExtent.size), native: native, ticket: displayTicket,
+                    pixels: croppedLibrary ? frameExtent.size : (roiRect.map(\.size) ?? fresh.fullExtent.size), native: native, ticket: displayTicket,
                     sourceRect: result == nil ? nil : roiRect, fullExtent: frameExtent,
                     developSettingsIdentity: renderSettingsIdentity)
                 if let result, !native {
                     InspectionReadyFrameStore.shared.publishFullPreview(asset: asset, xmp: renderXMP,
-                        image: result, fullExtent: fresh.fullExtent)
+                        image: result, fullExtent: frameExtent)
                 }
                 isLoading = false
                 imageError = result == nil ? "Unable to render \(asset.filename). Choose another photo to continue." : nil

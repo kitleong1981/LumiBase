@@ -1,5 +1,11 @@
 # LumiBase
 
+## Fast Library 1.14.10：左鍵 HOLD 100% 點擊錨點
+
+快速換照片、仍顯示該照片自己的 resident preview 時，左鍵按住現在先記下 Fit／letterbox 內的實際點擊位置，再放大，不再只設 held 而沿用圖片中心。裁切 Library 的 Fit→native metadata 使用同一 full processed output extent，避免後續縮放跳位；靠近邊緣仍會防黑邊 clamp。按住／放開回 Fit、Z／完成雙擊才持續、ROI／Trash hold／全解析度 sharpness 規則不變。
+
+詳見 [1.14.10 座標 RED/GREEN、實拍 crop 與驗證限制](docs/1.14.10-fast-library-zhTW.md)。完整 Release 235 tests／36 skipped／0 failures；本次 native Settings key-focus 複驗仍未取得 key window，失敗明列，不冒稱通過。
+
 ## Fast Library 1.14.9：全解析度 Sharpness 與原生 Settings
 
 Develop 返回 Library，Loupe／Grid／Filmstrip 預設顯示處理後的曝光、色調與裁切；未編輯照片仍用快速 camera JPEG，星等／旗標不是修圖。已編輯 RAW 100% 對選取照片使用準確 native pipeline，未裁切可用 processed ROI，裁切走 full processed render。RAW-only Fit 使用內嵌 JPEG；無足尺寸 JPEG 時，100% 對當前照片 on-demand RAW 解碼，不把 proxy 冒充原生。
