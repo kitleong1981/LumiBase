@@ -290,7 +290,7 @@ public final class AdobeColorPipeline: Sendable {
 
 
 /// Baseline dark/mid-tone correction measured against Lightroom (all-zero) and Sony JPEG references:
-/// lifts L* by ~4 and scales chroma by ~0.8 in the L* 1..35 band. Experimental; see docs/baseline-tone-a.md.
+/// lifts L* by ~2 and scales chroma by ~0.8 in the L* 1..35 band. Experimental; see docs/baseline-tone-a.md.
 public enum BaselineToneKernel {
     static var isEnabled: Bool {
         if let e = ProcessInfo.processInfo.environment["LB_BASELINE_A"] { return e != "0" }
@@ -340,7 +340,7 @@ public enum BaselineToneKernel {
     """)
     static func apply(_ image: CIImage) -> CIImage {
         guard let kernel, !image.extent.isInfinite else { return image }
-        let lift = Float(tune("LB_BA_LIFT", 4.0)), chroma = Float(tune("LB_BA_CHROMA", 0.8))
+        let lift = Float(tune("LB_BA_LIFT", 2.0)), chroma = Float(tune("LB_BA_CHROMA", 0.8))
         return kernel.apply(extent: image.extent, arguments: [image, lift, chroma]) ?? image
     }
 }
