@@ -281,7 +281,66 @@ public final class AdobeColorPipeline: Sendable {
             }
         }
         
+        if isRaw && BaselineToneKernel.isEnabled {
+            current = BaselineToneKernel.apply(current)
+        }
         return current
     }
 }
 
+
+/// Baseline dark/mid-tone correction measured against Lightroom (all-zero) and Sony JPEG references:
+/// lifts L* by ~4 and scales chroma by ~0.8 in the L* 1..35 band. Experimental; see docs/baseline-tone-a.md.
+public enum BaselineToneKernel {
+    static var isEnabled: Bool {
+        if let e = ProcessInfo.processInfo.environment["LB_BASELINE_A"] { return e != "0" }
+        return (UserDefaults.standard.object(forKey: "baselineToneCorrection") as? Bool) ?? true
+    }
+    private static func tune(_ k: String, _ d: Double) -> String {
+        if let v = ProcessInfo.processInfo.environment[k], let x = Double(v) { return String(x) }
+        return String(d)
+    }
+    private static let kernel = CIColorKernel(source: """
+        vec3 srgbEnc(vec3 c) {
+            vec3 lo = c * 12.92;
+            vec3 hi = 1.055 * pow(max(c, vec3(0.0031308)), vec3(1.0/2.4)) - 0.055;
+            return mix(hi, lo, step(c, vec3(0.0031308)));
+        }
+        vec3 srgbDec(vec3 c) {
+            vec3 lo = c / 12.92;
+            vec3 hi = pow((max(c, vec3(0.04045)) + 0.055) / 1.055, vec3(2.4));
+            return mix(hi, lo, step(c, vec3(0.04045)));
+        }
+        float labF(float t) { return t > 0.008856 ? pow(t, 1.0/3.0) : 7.787 * t + 16.0/116.0; }
+        float labFInv(float t) { float t3 = t*t*t; return t3 > 0.008856 ? t3 : (t - 16.0/116.0) / 7.787; }
+        kernel vec4 baselineTone(__sample s, float lift, float chroma) {
+            vec3 lin = s.rgb;
+            vec3 enc = srgbEnc(clamp(lin, 0.0, 1.0));
+            vec3 l = clamp(lin, 0.0, 1.0);
+            float X = dot(l, vec3(0.4124, 0.3576, 0.1805)) / 0.95047;
+            float Y = dot(l, vec3(0.2126, 0.7152, 0.0722));
+            float Z = dot(l, vec3(0.0193, 0.1192, 0.9505)) / 1.08883;
+            float fx = labF(X), fy = labF(Y), fz = labF(Z);
+            float L = 116.0 * fy - 16.0;
+            float w = smoothstep(1.0, 6.0, L) * (1.0 - smoothstep(18.0, 35.0, L));
+            if (w <= 0.0) { return s; }
+            float a = 500.0 * (fx - fy) * (1.0 - (1.0 - chroma) * w);
+            float b = 200.0 * (fy - fz) * (1.0 - (1.0 - chroma) * w);
+            float L2 = L + lift * w;
+            float fy2 = (L2 + 16.0) / 116.0;
+            float fx2 = fy2 + a / 500.0;
+            float fz2 = fy2 - b / 200.0;
+            float X2 = labFInv(fx2) * 0.95047, Y2 = labFInv(fy2), Z2 = labFInv(fz2) * 1.08883;
+            vec3 outLin = vec3(
+                dot(vec3(X2, Y2, Z2), vec3( 3.2406, -1.5372, -0.4986)),
+                dot(vec3(X2, Y2, Z2), vec3(-0.9689,  1.8758,  0.0415)),
+                dot(vec3(X2, Y2, Z2), vec3( 0.0557, -0.2040,  1.0570)));
+            return vec4(max(outLin, vec3(0.0)), s.a);
+        }
+    """)
+    static func apply(_ image: CIImage) -> CIImage {
+        guard let kernel, !image.extent.isInfinite else { return image }
+        let lift = Float(tune("LB_BA_LIFT", 4.0)), chroma = Float(tune("LB_BA_CHROMA", 0.8))
+        return kernel.apply(extent: image.extent, arguments: [image, lift, chroma]) ?? image
+    }
+}
