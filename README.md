@@ -1,33 +1,5 @@
 # LumiBase
 
-## Fast Library 1.14.12：修正預覽滑桿黑畫面轉圈與縮圖卡死
-
-修正 Develop 模式拖曳曝光、亮部、陰影等滑桿時畫面變黑並轉菊花問題：移除選取任務中的快取識別碼觸發器，改由 GPU `LiveDevelopPreviewEngine` 進行即時調色渲染，且在同照片選取時保留已載入畫面與解碼快取，達成真正無縫滑動。同時修復縮圖背景載入排隊卡死與高光過曝時的色階斷裂問題。
-
-詳見 [1.14.12 預覽與縮圖問題修復](docs/1.14.12-fast-library-zhTW.md)。
-
-## Fast Library 1.14.11：修正啟動只開 Settings
-
-主 WindowGroup 改為預設 launch scene；主窗關閉、Settings 保留時，Finder／Dock 明確 reopen 會回到主工作區，不在普通 activate 強制開窗，也不重複建立已有主窗。保留原本 ROI／sharpness 偏好、前版 HOLD 點擊錨點與鍵盤路由，不清除 preferences。
-
-詳見 [1.14.11 啟動／reopen RED→GREEN 與限制](docs/1.14.11-fast-library-zhTW.md)。完整 Release 238 tests／36 skipped／0 failures；native Settings key-focus 首次仍失敗，後續兩次未放寬 assertions 的實際 host 通過。
-
-## Fast Library 1.14.10：左鍵 HOLD 100% 點擊錨點
-
-快速換照片、仍顯示該照片自己的 resident preview 時，左鍵按住現在先記下 Fit／letterbox 內的實際點擊位置，再放大，不再只設 held 而沿用圖片中心。裁切 Library 的 Fit→native metadata 使用同一 full processed output extent，避免後續縮放跳位；靠近邊緣仍會防黑邊 clamp。按住／放開回 Fit、Z／完成雙擊才持續、ROI／Trash hold／全解析度 sharpness 規則不變。
-
-詳見 [1.14.10 座標 RED/GREEN、實拍 crop 與驗證限制](docs/1.14.10-fast-library-zhTW.md)。完整 Release 235 tests／36 skipped／0 failures；本次 native Settings key-focus 複驗仍未取得 key window，失敗明列，不冒稱通過。
-
-## Fast Library 1.14.9：全解析度 Sharpness 與原生 Settings
-
-Develop 返回 Library，Loupe／Grid／Filmstrip 預設顯示處理後的曝光、色調與裁切；未編輯照片仍用快速 camera JPEG，星等／旗標不是修圖。已編輯 RAW 100% 對選取照片使用準確 native pipeline，未裁切可用 processed ROI，裁切走 full processed render。RAW-only Fit 使用內嵌 JPEG；無足尺寸 JPEG 時，100% 對當前照片 on-demand RAW 解碼，不把 proxy 冒充原生。
-
-**⌘, → Sharpness / Full resolution — Experimental** 可開啟右下角 **Sharpness · Full resolution**（新偏好預設 OFF、既有 ON 保留）。分析選取照片實際原生全圖，不是 1600px proxy 放大或 viewport ROI；已編輯照片分析相同修圖／裁切的 full processed output，並標示來源和實際像素尺寸。保留 64px Laplacian 最銳利 10% blocks 相對指標，不是對焦信心／自動淘汰。可能額外解碼完整 JPEG 或選取 RAW，增加 CPU／瞬間 RAM；顯示畫面不等待 score。實測原生 9504×6336 JPEG：1801 **131.42**、1803 **439.53**，詳細三輪 hosted OFF／ON 與代價見新版本文件。舊 122–131ms 診斷不是新版本保證。
-
-保留已接受的 Fast Library 簡化 UI、相機 JPEG 快速預覽與安全背景 Trash。按 **⌘,** 開啟原生 Settings → **Performance / Cache**：Library JPEG ROI 實驗可選 OFF（新偏好設定預設）／前後各 1／前後各 2，另選 64／128／256 MiB 預算，查看用量及清空快取。明確選擇會在重啟後保留；快取預算不是 app + helper RSS 上限，完整 JPEG 解碼仍有瞬間記憶體尖峰。暖 native hit 不一定較慢，請保持實驗 opt-in。
-
-詳見 [1.14.9 全圖指標、效能與驗證](docs/1.14.9-fast-library-zhTW.md)；[1.14.8 Settings Escape 修正](docs/1.14.8-fast-library-zhTW.md)保留。
-
 > **Native macOS Digital Asset Manager (DAM) for Camera RAW & XMP workflows on Apple Silicon.**
 
 LumiBase 是一套專為 macOS (特別是 Apple Silicon M 系列晶片) 打造的高效能 RAW 相片資產管理軟體。提供如 Adobe Lightroom Classic 般的直覺介面、秒級選圖反應、精確的 Adobe Camera RAW 色彩還原，以及非破壞性的雙向 XMP Sidecar 中繼資料同步。

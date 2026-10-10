@@ -79,12 +79,10 @@ public actor ThumbnailLoader {
     private let cache = ThumbnailCacheManager.shared
     private var inFlightTasks: [String: Task<NSImage?, Never>] = [:]
 
-    // ImageIO may synchronously wait for RawCamera's own dispatch work. Running
-    // many such calls on Swift's cooperative pool can starve that work and every
-    // pending foreground load. A serial GCD queue bounds blocking decodes to one;
-    // callers suspend at a continuation rather than occupying cooperative workers.
+    // Bounded concurrent queue prevents memory thrashing while enabling parallel thumbnail generation.
+    private nonisolated static let decodeSemaphore = DispatchSemaphore(value: min(4, max(2, ProcessInfo.processInfo.activeProcessorCount)))
     private nonisolated static let decodeQueue = DispatchQueue(
-        label: "com.lumibase.thumbnail.decode", qos: .userInitiated)
+        label: "com.lumibase.thumbnail.decode", qos: .userInitiated, attributes: .concurrent)
     private nonisolated static let renderContext = CIContext(options: [.useSoftwareRenderer: false])
 
     /// Returns only an already resident thumbnail; safe for the synchronous selection handoff.
@@ -96,7 +94,7 @@ public actor ThumbnailLoader {
     /// The single key path used by insertion/loading and synchronous handoff.
     static func cacheKey(for asset: PhotoAsset, maxPixelSize: Int) -> String {
         ThumbnailCacheManager.shared.cacheKey(for: asset.fileURL, maxPixelSize: maxPixelSize,
-            dateModified: asset.dateModified, developTag: "fast-accurate-v3|\(asset.fileSize)|\(NativeHighlightsService.isEnabled)|" + asset.xmp.thumbnailDevelopCacheIdentity)
+            dateModified: asset.dateModified, developTag: "fast-accurate-v4|\(asset.fileSize)|\(NativeHighlightsService.isEnabled)|" + asset.xmp.thumbnailDevelopCacheIdentity)
     }
     
     /// Loads a thumbnail asynchronously with memory/disk caching and request deduplication
@@ -119,6 +117,8 @@ public actor ThumbnailLoader {
         let task = Task<NSImage?, Never>.detached(priority: .userInitiated) {
             return await withCheckedContinuation { continuation in
                 Self.decodeQueue.async {
+                    Self.decodeSemaphore.wait()
+                    defer { Self.decodeSemaphore.signal() }
                     let image = autoreleasepool {
                         guard !cancellation.isCancelled else { return nil as NSImage? }
                         return Self.createThumbnail(for: targetAsset, maxPixelSize: maxPixelSize)
@@ -358,17 +358,27 @@ public actor ThumbnailLoader {
 
     /// Synchronously creates a thumbnail from disk using CIRAWFilter draft mode (for exact preview match) or ImageIO
     private nonisolated static func createThumbnail(for asset: PhotoAsset, maxPixelSize: Int) -> NSImage? {
-        // 1. For RAW assets with develop edits, use CIRAWFilter draft mode to get identical color science as Loupe View
-        if asset.isRaw && asset.xmp.hasDevelopEdits {
-            if let rawFilter = CIRAWFilter(imageURL: asset.fileURL) {
-                rawFilter.isDraftModeEnabled = true
-                if let baseCI = rawFilter.outputImage {
-                    let processed = AdobeColorPipeline.shared.process(
-                        image: baseCI,
-                        cameraModel: asset.cameraMetadata.model,
-                        xmp: asset.xmp
-                    )
-                    let extent = processed.extent
+        // 1. For assets with develop edits (both RAW and JPEG), process through AdobeColorPipeline
+        // so crop (e.g. 2:3, 16:9), rotation, and tone adjustments are accurately reflected on the thumbnail
+        if asset.xmp.hasDevelopEdits {
+            var baseCI: CIImage? = nil
+            if asset.isRaw {
+                if let rawFilter = CIRAWFilter(imageURL: asset.fileURL) {
+                    rawFilter.isDraftModeEnabled = true
+                    baseCI = rawFilter.outputImage
+                }
+            } else {
+                baseCI = CIImage(contentsOf: asset.fileURL)
+            }
+            
+            if let inputCI = baseCI {
+                let processed = AdobeColorPipeline.shared.process(
+                    image: inputCI,
+                    cameraModel: asset.cameraMetadata.model,
+                    xmp: asset.xmp
+                )
+                let extent = processed.extent
+                if !extent.isEmpty && extent.width > 0 && extent.height > 0 {
                     let maxDim = max(extent.width, extent.height)
                     let scale = maxDim > CGFloat(maxPixelSize) ? CGFloat(maxPixelSize) / maxDim : 1.0
                     let scaledCI = scale < 1.0 ? processed.transformed(by: CGAffineTransform(scaleX: scale, y: scale)) : processed

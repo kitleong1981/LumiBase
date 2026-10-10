@@ -5,6 +5,23 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.13 Fast Library] - 2026-10-10
+
+### Fixed
+- **Thumbnail Decoding Queue Concurrency (`ThumbnailLoader`)**:
+  - Replaced GCD serial queue with a concurrent queue bounded by a `DispatchSemaphore` matching system CPU cores, enabling genuine multi-core parallel thumbnail generation without memory exhaustion.
+- **Edited Non-RAW / JPEG Thumbnail Crop Support (`ThumbnailLoader`)**:
+  - Extended develop edit processing in `createThumbnail` to both RAW and non-RAW formats (JPEG, HEIC, TIFF). Edited JPEGs (e.g. cropped to 2:3 or 16:9) now accurately reflect their crop boxes, rotation, and tone adjustments on thumbnails instead of loading uncropped original files.
+  - Bumped cache key identity to `fast-accurate-v4` to automatically invalidate older uncropped or flawed thumbnail caches.
+- **Highlights Shader Numerical Overflow & Edge Inversion (`AcceptedHighlightsKernel`)**:
+  - Bounded input dynamic range and regression weights in CPU guide field (`prepare`) within stable `[-3.0, 3.0]` bounds.
+  - Added strict bounds to `exp2(d)` in Metal/CoreImage `colorKernel`, preventing exponential explosion on extreme highlights.
+  - Fixed division-by-zero hue singularity in achromatic highlight centers and shadow boundaries.
+  - Corrected boundary calculations for overexposed luminance ($y > 1.0$), eliminating negative boundaries, solarized black suns, and neon green edge artifacts.
+  - Clamped kernel final output strictly to `[0.0, 1.0]`, completely preventing NaN and color channel wrapping.
+- **Project Documentation Standardized (`README.md`)**:
+  - Cleaned `README.md` by moving historical release notes to `CHANGELOG.md` to keep the project front page concise and professional.
+
 ## [1.14.12 Fast Library] - 2026-10-10
 
 ### Fixed
@@ -12,11 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed develop settings cache identity from `.task(id:)` selection reload trigger. Adjusting Exposure, Highlights, Shadows, and other sliders now updates immediately through the dedicated GPU `LiveDevelopPreviewEngine` without aborting active tasks or triggering full RAW re-decodes.
   - Added `preserveCurrent` option to `InspectionDisplay.beginSelection` and `InspectionLoadTransition.beginSelection`. Adjusting develop settings on the same photo no longer clears the displayed image to black or activates the loading spinner.
   - Preserved resident `currentBaseHolder` across non-destructive adjustments, preventing unnecessary base image decodes.
-- **Thumbnail Loading Hang & Color Artifacts (`ThumbnailLoader`, `NativeHighlightsService`, `AppState`)**:
-  - Replaced serialized single-file RAW decode queue (`editedTail`) with parallel background decoding, restoring instant thumbnail rendering across large directories.
-  - Enabled lightweight draft RAW decoding with fallback to companion/embedded JPEG, eliminating permanent thumbnail loading spinners.
-  - Updated thumbnail cache key to `fast-accurate-v3` to automatically invalidate broken thumbnail caches.
-  - Disabled experimental `NativeHighlightsService` by default (`isEnabled = false`), fixing high dynamic range solarization, neon green shadows, and posterized highlights on backlit sunset photos.
+- **Thumbnail Loading Hang & Color Artifacts (`ThumbnailLoader`, `AcceptedHighlightsKernel`, `NativeHighlightsService`)**:
+  - Made `decodeQueue` concurrent with bounded `DispatchSemaphore` concurrency matching CPU core capacity, eliminating the serial queue bottleneck while preventing memory thrashing.
+  - Enabled lightweight draft RAW decoding and full develop/crop support for edited non-RAW JPEGs in `createThumbnail`, fixing an issue where cropped 2:3 JPEGs showed uncropped 4:3 originals.
+  - Updated thumbnail cache key to `fast-accurate-v4` to automatically invalidate broken or uncropped thumbnail caches.
+  - Fixed floating-point numerical overflow, division-by-zero, and hue singularity in `AcceptedHighlightsKernel` (both CPU guide field and Metal/CoreImage GPU kernel), preventing negative RGB, posterization, and solarized sun artifacts even when Native Highlights is enabled.
 - **Photo Grid Selection Flicker (`PhotoGridItemView`)**:
   - Removed `onPreview(nil)` from thumbnail load lifecycle, avoiding blank preview flashing when thumbnails refresh, and dispatched preview notifications asynchronously on the main actor.
 

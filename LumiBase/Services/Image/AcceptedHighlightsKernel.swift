@@ -70,10 +70,12 @@ enum AcceptedHighlightsKernel {
             let cr = br * (1 - gate) + tr * gate
             let cg = bg * (1 - gate) + tg * gate
             let cb = bb * (1 - gate) + tb * gate
-            let targetY = max(0.2126 * tr + 0.7152 * tg + 0.0722 * tb, 1e-6)
-            let fusedY = max(0.2126 * cr + 0.7152 * cg + 0.0722 * cb, 1e-6)
-            guide[i] = Float(log2(targetY))
-            detail[i] = Float(log2(fusedY) - log2(targetY))
+            let targetY = max(0.2126 * tr + 0.7152 * tg + 0.0722 * tb, 1e-4)
+            let fusedY = max(0.2126 * cr + 0.7152 * cg + 0.0722 * cb, 1e-4)
+            let g = log2(targetY)
+            let d = log2(fusedY) - g
+            guide[i] = Float(max(-10.0, min(4.0, g)))
+            detail[i] = Float(max(-4.0, min(4.0, d)))
         }
 
         let meanGuide = boxMeanParallel(guide, width: lowWidth, height: lowHeight)
@@ -90,13 +92,17 @@ enum AcceptedHighlightsKernel {
         var b = [Float](repeating: 0, count: count)
         for i in 0..<count {
             let variance = max(meanGuideSquared[i] - meanGuide[i] * meanGuide[i], 0)
-            a[i] = (meanGuideDetail[i] - meanGuide[i] * meanDetail[i]) / (variance + 0.08 * 0.08)
-            b[i] = meanDetail[i] - a[i] * meanGuide[i]
+            let rawA = (meanGuideDetail[i] - meanGuide[i] * meanDetail[i]) / (variance + 0.08 * 0.08)
+            let clampedA = max(-2.0, min(2.0, rawA))
+            a[i] = clampedA
+            b[i] = meanDetail[i] - clampedA * meanGuide[i]
         }
         let meanA = boxMeanParallel(a, width: lowWidth, height: lowHeight)
         let meanB = boxMeanParallel(b, width: lowWidth, height: lowHeight)
         var correction = [Float](repeating: 0, count: count)
-        for i in 0..<count { correction[i] = meanA[i] * guide[i] + meanB[i] }
+        for i in 0..<count {
+            correction[i] = max(-3.0, min(3.0, meanA[i] * guide[i] + meanB[i]))
+        }
 
         let bytes = correction.withUnsafeBufferPointer { Data(buffer: $0) }
         let lowImage = CIImage(bitmapData: bytes, bytesPerRow: lowWidth * MemoryLayout<Float>.size,
@@ -295,38 +301,39 @@ enum AcceptedHighlightsKernel {
             float3 be = q16(baseline.rgb);
             float3 te = q16(target.rgb);
             float3 bs = enc(be);
-            float d = correction.r;
+            float d = clamp(correction.r, -3.0, 3.0);
             float3 z = te * exp2(d);
             float3 l = lab(z);
             // Highlight warm chroma recovery: as overexposed highlights are recovered (d > 0.0),
             // restore and enrich natural warm sunset/cloud saturation instead of washing out into gray.
             float highlightChromaBoost = 1.0 + clamp(d * 0.35, 0.0, 0.45) * sat(l.x, 0.40, 0.90) * sat(l.z, 0.005, 0.08);
             float3 enrichedLab = float3(l.x, l.yz * highlightChromaBoost);
-            z = max(invlab(enrichedLab), float3(0.0));
+            z = clamp(invlab(enrichedLab), float3(0.0), float3(4.0));
             float mx=max(z.r,max(z.g,z.b));
             float excess=max(mx-0.85,0.0);
             float mapped=0.85+0.149*excess/(excess+0.149);
             z *= mx>0.85 ? mapped/max(mx,1e-8) : 1.0;
 
-            float y=dot(z,float3(0.2126,0.7152,0.0722));
-            float by=dot(be,float3(0.2126,0.7152,0.0722));
-            float3 cn=z/max(y,1e-12), bn=be/max(by,1e-12);
+            float y=clamp(dot(z,float3(0.2126,0.7152,0.0722)), 1e-5, 2.0);
+            float by=clamp(dot(be,float3(0.2126,0.7152,0.0722)), 1e-5, 2.0);
+            float3 cn=z/y, bn=be/by;
             float3 cl=lab(cn), bl=lab(bn);
             float ch=length(cl.yz), bh=length(bl.yz);
-            float hue=(atan(cl.z/(cl.y >= 0.0 ? max(cl.y,1e-20) : min(cl.y,-1e-20))) + (cl.y < 0.0 ? (cl.z >= 0.0 ? 3.141592653589793 : -3.141592653589793) : 0.0))*57.29577951308232;
+            float hue = atan(cl.z, (abs(cl.y) > 1e-7 ? cl.y : 1e-7)) * 57.29577951308232;
+            if (hue < 0.0) { hue += 360.0; }
             float chromaGate=sat(hue,15.0,30.0)*(1.0-sat(hue,75.0,95.0))*sat(y,0.025,0.15)*sat(ch,0.03,0.10)*(1.0-sat(max(bs.r,max(bs.g,bs.b)),0.88,0.995))*sat(ch-bh,0.002,0.025);
             float weight=0.45*chromaGate;
             float3 outc=mix(z,bn*y,weight);
             outc += y-dot(outc,float3(0.2126,0.7152,0.0722));
             float3 delta=outc-y;
             float3 bound = float3(
-                delta.r > 0.0 ? (1.0-y)/max(delta.r,1e-30) : (delta.r < 0.0 ? y/max(-delta.r,1e-30) : 1.0),
-                delta.g > 0.0 ? (1.0-y)/max(delta.g,1e-30) : (delta.g < 0.0 ? y/max(-delta.g,1e-30) : 1.0),
-                delta.b > 0.0 ? (1.0-y)/max(delta.b,1e-30) : (delta.b < 0.0 ? y/max(-delta.b,1e-30) : 1.0));
+                delta.r > 0.0 ? max(0.0, 1.0-y)/max(delta.r,1e-12) : (delta.r < 0.0 ? max(0.0, y)/max(-delta.r,1e-12) : 1.0),
+                delta.g > 0.0 ? max(0.0, 1.0-y)/max(delta.g,1e-12) : (delta.g < 0.0 ? max(0.0, y)/max(-delta.g,1e-12) : 1.0),
+                delta.b > 0.0 ? max(0.0, 1.0-y)/max(delta.b,1e-12) : (delta.b < 0.0 ? max(0.0, y)/max(-delta.b,1e-12) : 1.0));
             float limit=clamp(min(bound.r,min(bound.g,bound.b)),0.0,1.0);
             outc=y+delta*limit;
             outc=weight>0.0 ? outc : z;
-            return vec4(outc,1.0);
+            return vec4(clamp(outc, 0.0, 1.0), 1.0);
         }
     """#)
 }
