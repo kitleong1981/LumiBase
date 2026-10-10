@@ -1,5 +1,11 @@
 # LumiBase
 
+## Fast Library 1.14.11：修正啟動只開 Settings
+
+主 WindowGroup 改為預設 launch scene；主窗關閉、Settings 保留時，Finder／Dock 明確 reopen 會回到主工作區，不在普通 activate 強制開窗，也不重複建立已有主窗。保留原本 ROI／sharpness 偏好、前版 HOLD 點擊錨點與鍵盤路由，不清除 preferences。
+
+詳見 [1.14.11 啟動／reopen RED→GREEN 與限制](docs/1.14.11-fast-library-zhTW.md)。完整 Release 238 tests／36 skipped／0 failures；native Settings key-focus 首次仍失敗，後續兩次未放寬 assertions 的實際 host 通過。
+
 ## Fast Library 1.14.10：左鍵 HOLD 100% 點擊錨點
 
 快速換照片、仍顯示該照片自己的 resident preview 時，左鍵按住現在先記下 Fit／letterbox 內的實際點擊位置，再放大，不再只設 held 而沿用圖片中心。裁切 Library 的 Fit→native metadata 使用同一 full processed output extent，避免後續縮放跳位；靠近邊緣仍會防黑邊 clamp。按住／放開回 Fit、Z／完成雙擊才持續、ROI／Trash hold／全解析度 sharpness 規則不變。
