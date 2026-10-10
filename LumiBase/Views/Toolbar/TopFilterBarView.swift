@@ -6,142 +6,158 @@ public struct TopFilterBarView: View {
     @FocusState private var isSearchFocused: Bool
     
     public var body: some View {
-        HStack(spacing: 16) {
-            // Search Input
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(isSearchFocused ? LightroomTheme.accentYellow : LightroomTheme.textMuted)
-                    .font(.system(size: 11))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Picker("Workspace", selection: $appState.workspaceMode) {
+                    ForEach(WorkspaceMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 160)
+                .help("Library: camera JPEG, edits retained but not displayed. Develop: accurate RAW + edits.")
+                Spacer()
+            }
+            HStack(spacing: 10) {
+                // Search Input
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(isSearchFocused ? LightroomTheme.accentYellow : LightroomTheme.textMuted)
+                        .font(.system(size: 11))
                 
-                TextField("Search (Filename, Camera, Keyword...)", text: $appState.filterCriteria.searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11))
-                    .foregroundColor(LightroomTheme.textPrimary)
-                    .focused($isSearchFocused)
-                    .help("Search Photos by Filename, Camera, or Keyword (⌘F)")
-                    .onSubmit {
-                        isSearchFocused = false
-                        DispatchQueue.main.async {
-                            NSApp.keyWindow?.makeFirstResponder(nil)
+                    TextField("Search (Filename, Camera, Keyword...)", text: $appState.filterCriteria.searchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11))
+                        .foregroundColor(LightroomTheme.textPrimary)
+                        .focused($isSearchFocused)
+                        .help("Search Photos by Filename, Camera, or Keyword (⌘F)")
+                        .onSubmit {
+                            isSearchFocused = false
+                            DispatchQueue.main.async {
+                                NSApp.keyWindow?.makeFirstResponder(nil)
+                            }
                         }
-                    }
-                    .onExitCommand {
-                        isSearchFocused = false
-                        DispatchQueue.main.async {
-                            NSApp.keyWindow?.makeFirstResponder(nil)
+                        .onExitCommand {
+                            isSearchFocused = false
+                            DispatchQueue.main.async {
+                                NSApp.keyWindow?.makeFirstResponder(nil)
+                            }
                         }
-                    }
                 
-                if !appState.filterCriteria.searchText.isEmpty {
-                    Button {
-                        appState.filterCriteria.searchText = ""
-                        isSearchFocused = false
-                        DispatchQueue.main.async {
-                            NSApp.keyWindow?.makeFirstResponder(nil)
+                    if !appState.filterCriteria.searchText.isEmpty {
+                        Button {
+                            appState.filterCriteria.searchText = ""
+                            isSearchFocused = false
+                            DispatchQueue.main.async {
+                                NSApp.keyWindow?.makeFirstResponder(nil)
+                            }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(LightroomTheme.textMuted)
+                                .font(.system(size: 10))
                         }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(LightroomTheme.textMuted)
-                            .font(.system(size: 10))
+                        .buttonStyle(.plain)
+                        .help("Clear Search (Esc)")
                     }
-                    .buttonStyle(.plain)
-                    .help("Clear Search (Esc)")
                 }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(LightroomTheme.cardBackground)
-            .cornerRadius(4)
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(isSearchFocused ? LightroomTheme.accentYellow.opacity(0.8) : LightroomTheme.cardBorder, lineWidth: 1)
-            )
-            .frame(width: 250)
-            .onAppear {
-                isSearchFocused = false
-                DispatchQueue.main.async {
-                    NSApp.keyWindow?.makeFirstResponder(nil)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(LightroomTheme.cardBackground)
+                .cornerRadius(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(isSearchFocused ? LightroomTheme.accentYellow.opacity(0.8) : LightroomTheme.cardBorder, lineWidth: 1)
+                )
+                .frame(minWidth: 120, idealWidth: 250, maxWidth: 250)
+                .onAppear {
+                    isSearchFocused = false
+                    DispatchQueue.main.async {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
                 }
-            }
-            .onChange(of: appState.viewMode) { _, _ in
-                isSearchFocused = false
-                DispatchQueue.main.async {
-                    NSApp.keyWindow?.makeFirstResponder(nil)
+                .onChange(of: appState.viewMode) { _, _ in
+                    isSearchFocused = false
+                    DispatchQueue.main.async {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    NSApp.keyWindow?.makeFirstResponder(nil)
+                .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseFocusSearch"))) { _ in
+                    isSearchFocused = true
                 }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LumiBaseFocusSearch"))) { _ in
-                isSearchFocused = true
-            }
             
-            Divider()
-                .frame(height: 14)
-                .background(LightroomTheme.dividerColor)
+                Divider()
+                    .frame(height: 14)
+                    .background(LightroomTheme.dividerColor)
             
-            // Rating Filter Buttons (>= 1 to 5)
-            HStack(spacing: 4) {
-                Text("Rating:")
-                    .font(.system(size: 11))
-                    .foregroundColor(LightroomTheme.textSecondary)
+                // Rating Filter Buttons (>= 1 to 5)
+                HStack(spacing: 4) {
+                    Text("Rating:")
+                        .font(.system(size: 11))
+                        .foregroundColor(LightroomTheme.textSecondary)
                 
-                ForEach(1...5, id: \.self) { star in
-                    Button {
-                        if appState.filterCriteria.minimumRating == star {
-                            appState.filterCriteria.minimumRating = 0
-                        } else {
-                            appState.filterCriteria.minimumRating = star
-                            appState.filterCriteria.ratingExact = false
+                    ForEach(1...5, id: \.self) { star in
+                        Button {
+                            if appState.filterCriteria.minimumRating == star {
+                                appState.filterCriteria.minimumRating = 0
+                            } else {
+                                appState.filterCriteria.minimumRating = star
+                                appState.filterCriteria.ratingExact = false
+                            }
+                        } label: {
+                            Image(systemName: star <= appState.filterCriteria.minimumRating ? "star.fill" : "star")
+                                .font(.system(size: 11))
+                                .foregroundColor(star <= appState.filterCriteria.minimumRating ? LightroomTheme.accentYellow : LightroomTheme.textMuted)
                         }
-                    } label: {
-                        Image(systemName: star <= appState.filterCriteria.minimumRating ? "star.fill" : "star")
-                            .font(.system(size: 11))
-                            .foregroundColor(star <= appState.filterCriteria.minimumRating ? LightroomTheme.accentYellow : LightroomTheme.textMuted)
+                        .buttonStyle(.plain)
+                        .help("Filter Rating ≥ \(star)★")
                     }
-                    .buttonStyle(.plain)
-                    .help("Filter Rating ≥ \(star)★")
-                }
                 
-                if appState.filterCriteria.minimumRating > 0 {
-                    Text("≥ \(appState.filterCriteria.minimumRating)★")
-                        .font(.system(size: 10, weight: .bold))
+                    if appState.filterCriteria.minimumRating > 0 {
+                        Text("≥ \(appState.filterCriteria.minimumRating)★")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(LightroomTheme.accentYellow)
+                    }
+                }
+            
+                Divider()
+                    .frame(height: 14)
+                    .background(LightroomTheme.dividerColor)
+            
+                // Flag Filters (Pick, Reject, Unflagged)
+                HStack(spacing: 8) {
+                    Text("Flag:")
+                        .font(.system(size: 11))
+                        .foregroundColor(LightroomTheme.textSecondary)
+                
+                    flagFilterButton(flag: .pick, icon: "flag.fill", color: .white, title: "Filter Flagged / Picked (P)")
+                    flagFilterButton(flag: .reject, icon: "xmark", color: .red, title: "Filter Rejected (X)")
+                    flagFilterButton(flag: .unflagged, icon: "circle.dashed", color: LightroomTheme.textMuted, title: "Filter Unflagged (U)")
+                }
+            
+                if !appState.deletingAssetIDs.isEmpty {
+                    Text("Trash: \(appState.deletingAssetIDs.count) pending")
+                        .font(.system(size: 10)).foregroundColor(.orange)
+                }
+                Spacer()
+            
+                // Reset Filters Button
+                if appState.filterCriteria.isActive {
+                    Button {
+                        appState.filterCriteria.reset()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Reset Filter")
+                        }
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundColor(LightroomTheme.accentYellow)
-                }
-            }
-            
-            Divider()
-                .frame(height: 14)
-                .background(LightroomTheme.dividerColor)
-            
-            // Flag Filters (Pick, Reject, Unflagged)
-            HStack(spacing: 8) {
-                Text("Flag:")
-                    .font(.system(size: 11))
-                    .foregroundColor(LightroomTheme.textSecondary)
-                
-                flagFilterButton(flag: .pick, icon: "flag.fill", color: .white, title: "Filter Flagged / Picked (P)")
-                flagFilterButton(flag: .reject, icon: "xmark", color: .red, title: "Filter Rejected (X)")
-                flagFilterButton(flag: .unflagged, icon: "circle.dashed", color: LightroomTheme.textMuted, title: "Filter Unflagged (U)")
-            }
-            
-            Spacer()
-            
-            // Reset Filters Button
-            if appState.filterCriteria.isActive {
-                Button {
-                    appState.filterCriteria.reset()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.counterclockwise")
-                        Text("Reset Filter")
                     }
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(LightroomTheme.accentYellow)
+                    .buttonStyle(.plain)
+                    .help("Reset All Filters")
                 }
-                .buttonStyle(.plain)
-                .help("Reset All Filters")
-            }
+        }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)

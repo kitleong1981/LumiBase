@@ -13,45 +13,47 @@ public struct RightInspectorView: View {
         VStack(spacing: 0) {
             // Panel Header with Tool Switcher
             HStack(spacing: 6) {
-                Text("DEVELOP & METADATA")
+                Text(appState.workspaceMode == .develop ? "DEVELOP & METADATA" : "METADATA")
                     .font(.system(size: 11, weight: .bold))
                     .foregroundColor(LightroomTheme.textSecondary)
                 
                 Spacer()
                 
                 // Tool Switcher: Adjust/Edit vs Crop & Straighten
-                HStack(spacing: 2) {
-                    Button {
-                        appState.activeDevelopTool = .edit
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 11))
-                            .foregroundColor(appState.activeDevelopTool == .edit ? LightroomTheme.accentYellow : LightroomTheme.textMuted)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(appState.activeDevelopTool == .edit ? LightroomTheme.accentYellow.opacity(0.18) : Color.clear)
-                            .cornerRadius(3)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Edit Adjustments (E)")
+                if appState.workspaceMode == .develop {
+                    HStack(spacing: 2) {
+                        Button {
+                            appState.activeDevelopTool = .edit
+                        } label: {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 11))
+                                .foregroundColor(appState.activeDevelopTool == .edit ? LightroomTheme.accentYellow : LightroomTheme.textMuted)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(appState.activeDevelopTool == .edit ? LightroomTheme.accentYellow.opacity(0.18) : Color.clear)
+                                .cornerRadius(3)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Edit Adjustments (E)")
                     
-                    Button {
-                        appState.toggleCropMode()
-                    } label: {
-                        Image(systemName: "crop")
-                            .font(.system(size: 11))
-                            .foregroundColor(appState.activeDevelopTool == .crop ? LightroomTheme.accentYellow : LightroomTheme.textMuted)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(appState.activeDevelopTool == .crop ? LightroomTheme.accentYellow.opacity(0.18) : Color.clear)
-                            .cornerRadius(3)
+                        Button {
+                            appState.toggleCropMode()
+                        } label: {
+                            Image(systemName: "crop")
+                                .font(.system(size: 11))
+                                .foregroundColor(appState.activeDevelopTool == .crop ? LightroomTheme.accentYellow : LightroomTheme.textMuted)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(appState.activeDevelopTool == .crop ? LightroomTheme.accentYellow.opacity(0.18) : Color.clear)
+                                .cornerRadius(3)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Crop & Straighten (R)")
                     }
-                    .buttonStyle(.plain)
-                    .help("Crop & Straighten (R)")
+                    .padding(2)
+                    .background(LightroomTheme.cardBackground)
+                    .cornerRadius(4)
                 }
-                .padding(2)
-                .background(LightroomTheme.cardBackground)
-                .cornerRadius(4)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -64,26 +66,37 @@ public struct RightInspectorView: View {
                     
                     // 1. Histogram Section
                     collapsibleSection(title: "HISTOGRAM", isExpanded: $isHistogramExpanded) {
-                        HistogramView(asset: appState.primarySelectedAsset)
+                        Toggle("Histogram", isOn: $appState.isHistogramEnabled)
+                            .padding(.horizontal, 10)
+                        if appState.isHistogramEnabled {
+                            HistogramView(asset: appState.primarySelectedAsset, histogram: appState.displayHistogram)
+                        }
                     }
                     
                     Divider().background(LightroomTheme.dividerColor)
                     
+                    if appState.workspaceMode == .library {
+                        Text("Camera preview (JPEG)\nDevelop edits are retained, not displayed.")
+                            .font(.system(size: 11)).padding(.horizontal, 10)
+                        Button("Open Develop for editing") { appState.workspaceMode = .develop; appState.viewMode = .loupe }
+                    }
                     if let asset = appState.primarySelectedAsset {
-                        if appState.activeDevelopTool == .crop {
-                            // 2a. Crop & Rotate Tool Panel Section
-                            collapsibleSection(title: "CROP & STRAIGHTEN", isExpanded: $isDevelopExpanded, badge: asset.xmp.hasCrop ? "Active" : nil) {
-                                CropControlPanelView(asset: asset, appState: appState)
+                        if appState.workspaceMode == .develop {
+                            if appState.activeDevelopTool == .crop {
+                                // 2a. Crop & Rotate Tool Panel Section
+                                collapsibleSection(title: "CROP & STRAIGHTEN", isExpanded: $isDevelopExpanded, badge: asset.xmp.hasCrop ? "Active" : nil) {
+                                    CropControlPanelView(asset: asset, appState: appState)
+                                }
+                            } else {
+                                // 2b. Develop (Basic) Panel Section
+                                collapsibleSection(title: "BASIC (DEVELOP)", isExpanded: $isDevelopExpanded, badge: asset.xmp.hasDevelopEdits ? "Active" : nil) {
+                                    DevelopBasicPanelView(asset: asset, appState: appState)
+                                }
                             }
-                        } else {
-                            // 2b. Develop (Basic) Panel Section
-                            collapsibleSection(title: "BASIC (DEVELOP)", isExpanded: $isDevelopExpanded, badge: asset.xmp.hasDevelopEdits ? "Active" : nil) {
-                                DevelopBasicPanelView(asset: asset, appState: appState)
-                            }
+                        
+                            Divider().background(LightroomTheme.dividerColor)
+                        
                         }
-                        
-                        Divider().background(LightroomTheme.dividerColor)
-                        
                         // 3. XMP Metadata & Rating Editor Section
                         collapsibleSection(title: "METADATA (XMP)", isExpanded: $isMetadataExpanded) {
                             XMPMetadataEditorView(asset: asset, appState: appState)
@@ -110,8 +123,10 @@ public struct RightInspectorView: View {
             }
             
             // Bottom Develop Actions Bar (Copy / Paste / Sync / Auto Sync)
-            Divider().background(LightroomTheme.dividerColor)
-            developFooterBar
+            if appState.workspaceMode == .develop {
+                Divider().background(LightroomTheme.dividerColor)
+                developFooterBar
+            }
         }
         .frame(minWidth: 240, idealWidth: 280, maxWidth: 360)
         .background(LightroomTheme.panelBackground)

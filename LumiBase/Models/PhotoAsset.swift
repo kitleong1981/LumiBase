@@ -37,9 +37,9 @@ public enum SupportedFileType: String, CaseIterable {
 
 /// Represents a single image asset on disk with its associated metadata and XMP sidecar
 public struct PhotoAsset: Identifiable, Hashable, Sendable {
-    public var id: String {
-        fileURL.standardizedFileURL.path
-    }
+    // Canonicalize once at ingestion. Foundation's standardizedFileURL performs
+    // reachability/stat work on mounted volumes; view identity must never do I/O.
+    public let id: String
     public let fileURL: URL
     public let filename: String
     public let fileExtension: String
@@ -128,6 +128,7 @@ public struct PhotoAsset: Identifiable, Hashable, Sendable {
         xmp: XMPMetadata = .empty,
         cameraMetadata: CameraMetadata = .empty
     ) {
+        self.id = fileURL.standardizedFileURL.path
         self.fileURL = fileURL
         self.filename = fileURL.lastPathComponent
         self.fileExtension = fileURL.pathExtension.lowercased()

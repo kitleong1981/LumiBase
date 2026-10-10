@@ -1,12 +1,39 @@
 import SwiftUI
 import AppKit
 
+/// Bins only a published display bitmap. No URL/source loader/render dependency exists.
+@MainActor public final class DisplayHistogramState: ObservableObject {
+    @Published public private(set) var data: HistogramData?
+    @Published public private(set) var label = ""
+    public var enabled = false { didSet { if !enabled { clear() } } }
+    private var revision: UInt64 = 0
+    private var task: Task<Void, Never>?
+    private let compute: (NSImage) async -> HistogramData
+    public init(compute: @escaping (NSImage) async -> HistogramData = { await HistogramCalculator.computeHistogram(for: $0) }) {
+        self.compute = compute
+    }
+    public func clear() {
+        revision &+= 1; task?.cancel(); task = nil; data = nil; label = ""
+    }
+    public func submit(_ image: NSImage, label: String) {
+        guard enabled else { return }
+        clear()
+        let ticket = revision
+        task = Task { [weak self] in
+            guard let self, !Task.isCancelled, self.enabled else { return }
+            let data = await self.compute(image)
+            guard !Task.isCancelled, self.enabled, self.revision == ticket else { return }
+            self.data = data; self.label = label; self.task = nil
+        }
+    }
+}
+
 /// Real-time RGB & Luminance histogram graph
 public struct HistogramView: View {
     public let asset: PhotoAsset?
     
-    @State private var histogramData: HistogramData = .empty
-    @State private var isCalculating: Bool = false
+    @ObservedObject var histogram: DisplayHistogramState
+    private var histogramData: HistogramData { histogram.data ?? .empty }
     
     public var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -32,6 +59,8 @@ public struct HistogramView: View {
                 .padding(.horizontal, 10)
             }
             
+            Text(histogram.label.isEmpty ? "Waiting for displayed bitmap" : histogram.label)
+                .font(.system(size: 10)).padding(.horizontal, 10)
             // Histogram Curve Canvas
             ZStack {
                 Color.black.opacity(0.6)
@@ -83,52 +112,6 @@ public struct HistogramView: View {
             .frame(height: 110)
             .cornerRadius(4)
             .padding(.horizontal, 8)
-        }
-        .task(id: asset?.id) {
-            await computeHistogram()
-        }
-        .task(id: asset?.xmp) {
-            // Debounce histogram during rapid slider drags to keep GPU & CPU dedicated to 120fps preview
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled else { return }
-            await computeHistogram()
-        }
-    }
-    
-    private func computeHistogram() async {
-        guard let asset = asset else {
-            self.histogramData = .empty
-            return
-        }
-        
-        isCalculating = true
-        
-        // 1. Compute histogram from the actual developed image with all XMP adjustments
-        let work = Task.detached {
-            guard let holder = await RAWImageLoader.shared.loadBaseHolder(from: asset.fileURL, xmp: asset.xmp),
-                  !Task.isCancelled else { return Optional<NSImage>.none }
-            return RAWImageLoader.shared.renderProcessed(baseHolder: holder, cameraModel: asset.cameraMetadata.model,
-                                                        xmp: asset.xmp, interactive: true)
-        }
-        let processed = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
-        guard !Task.isCancelled else { return }
-        if let processed {
-            let data = await HistogramCalculator.computeHistogram(for: processed)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                self.histogramData = data
-                self.isCalculating = false
-            }
-            return
-        }
-        
-        // 2. Fallback to thumbnail
-        if let thumbnail = await ThumbnailLoader.shared.loadThumbnail(for: asset, maxPixelSize: 512) {
-            let data = await HistogramCalculator.computeHistogram(for: thumbnail)
-            await MainActor.run {
-                self.histogramData = data
-                self.isCalculating = false
-            }
         }
     }
 }

@@ -138,19 +138,22 @@ final class FilmstripWheelView: NSView {
     }
 }
 
-private struct FilmstripItemView: View {
+struct FilmstripItemView: View {
     let asset: PhotoAsset
     let isSelected: Bool
     let isPrimary: Bool
     let onSelect: (_ isToggle: Bool, _ isRange: Bool) -> Void
+    var onPreview: (NSImage?) -> Void = { _ in }
     
     @State private var thumbnail: NSImage?
+    @State private var thumbnailIdentity: String?
+    private var previewIdentity: String { ThumbnailLoader.cacheKey(for: asset, maxPixelSize: 180) }
     
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             ZStack {
                 Color.black.opacity(0.4)
-                if let img = thumbnail {
+                if thumbnailIdentity == previewIdentity, let img = thumbnail {
                     Image(nsImage: img)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -169,8 +172,8 @@ private struct FilmstripItemView: View {
             
             // Flags & ratings overlay
             HStack(spacing: 3) {
-                if asset.xmp.isLoadedFromSidecar {
-                    Text("XMP")
+                if asset.xmp.isLoadedFromSidecar || asset.xmp.hasDevelopEdits {
+                    Text(asset.xmp.hasDevelopEdits ? "Edited" : "XMP")
                         .font(.system(size: 6, weight: .bold))
                         .foregroundColor(.green)
                         .padding(.horizontal, 2)
@@ -207,10 +210,16 @@ private struct FilmstripItemView: View {
             let isRange = flags.contains(.shift)
             onSelect(isToggle, isRange)
         }
-        .task(id: asset.id) {
-            let loaded = await ThumbnailLoader.shared.loadThumbnail(for: asset, maxPixelSize: 180)
+        .task(id: ThumbnailLoader.cacheKey(for: asset, maxPixelSize: 180)) {
+            thumbnail = nil; onPreview(nil)
+            let loaded = asset.xmp.hasDevelopEdits
+                ? await ThumbnailLoader.shared.loadThumbnail(for: asset, maxPixelSize: 180)
+                : await ThumbnailLoader.shared.loadCameraPreview(for: asset, maxPixelSize: 180)
+            guard !Task.isCancelled else { return }
             await MainActor.run {
                 self.thumbnail = loaded
+                self.thumbnailIdentity = previewIdentity
+                onPreview(loaded)
             }
         }
     }

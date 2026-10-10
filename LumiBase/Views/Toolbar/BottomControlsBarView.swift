@@ -35,7 +35,7 @@ public struct BottomControlsBarView: View {
                 .buttonStyle(.plain)
                 .help("Loupe View (E)")
                 
-                if appState.viewMode == .loupe {
+                if appState.viewMode == .loupe && appState.workspaceMode == .develop {
                     Menu {
                         Button {
                             appState.comparisonMode = .off

@@ -43,6 +43,7 @@ final class HighlightsToggleRefreshTests: XCTestCase {
         XCTAssertTrue(CGImageDestinationFinalize(destination))
         let asset = PhotoAsset(fileURL: url, xmp: XMPMetadata(highlights2012: -80))
         let state = AppState(preloader: PreviewPreloader(observeMemoryPressure: false))
+        state.workspaceMode = .develop // This regression tests accurate rendering, not camera JPEG.
         state.allAssets = [asset]
         state.primarySelectedAssetID = asset.id
         let host = NSHostingView(rootView: LoupeView(appState: state))

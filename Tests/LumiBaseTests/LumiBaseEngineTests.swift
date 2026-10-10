@@ -264,7 +264,7 @@ final class LumiBaseEngineTests: XCTestCase {
     }
     
     @MainActor
-    func testConfirmDeleteRemovesFilesAndXMP() throws {
+    func testConfirmDeleteRemovesFilesAndXMP() async throws {
         let tempDir = inspectionTestScratchURL(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer {
@@ -302,6 +302,7 @@ final class LumiBaseEngineTests: XCTestCase {
         
         // Confirm delete
         appState.confirmDeletePendingPhotos()
+        await appState.waitForTrashCompletion()
         
         // Assert files removed
         XCTAssertFalse(FileManager.default.fileExists(atPath: photo1URL.path))
@@ -317,6 +318,7 @@ final class LumiBaseEngineTests: XCTestCase {
         // Now delete asset2 (which has basename xmp)
         appState.requestDeleteSelectedPhotos()
         appState.confirmDeletePendingPhotos()
+        await appState.waitForTrashCompletion()
         
         XCTAssertFalse(FileManager.default.fileExists(atPath: photo2URL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: xmp2URL.path))
@@ -325,7 +327,7 @@ final class LumiBaseEngineTests: XCTestCase {
     }
     
     @MainActor
-    func testTrashFailureRetainsFixtureAndSelectionWithoutPermanentDeletion() throws {
+    func testTrashFailureRetainsFixtureAndSelectionWithoutPermanentDeletion() async throws {
         class FailingTrashManager: FileManager, @unchecked Sendable {
             var permanentRemovalCalls = 0
             override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
@@ -348,6 +350,7 @@ final class LumiBaseEngineTests: XCTestCase {
         state.requestDeleteSelectedPhotos()
         let manager = FailingTrashManager()
         state.confirmDeletePendingPhotos(fileManager: manager)
+        await state.waitForTrashCompletion()
         XCTAssertNotNil(state.deleteErrorMessage)
         XCTAssertTrue(state.deleteErrorMessage?.contains("fixture.ARW") == true)
         XCTAssertEqual(manager.permanentRemovalCalls, 0)
@@ -388,7 +391,7 @@ final class LumiBaseEngineTests: XCTestCase {
     }
     
     @MainActor
-    func testConfirmDeleteRemovesRawJpgAndXmp() throws {
+    func testConfirmDeleteRemovesRawJpgAndXmp() async throws {
         let tempDir = inspectionTestScratchURL(UUID().uuidString)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer {
@@ -426,6 +429,7 @@ final class LumiBaseEngineTests: XCTestCase {
         XCTAssertTrue(appState.showDeleteConfirmation)
         
         appState.confirmDeletePendingPhotos()
+        await appState.waitForTrashCompletion()
         
         // Ensure all 3 files are deleted
         XCTAssertFalse(FileManager.default.fileExists(atPath: rawURL.path))

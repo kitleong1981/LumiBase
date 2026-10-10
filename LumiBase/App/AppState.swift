@@ -6,22 +6,134 @@ public enum ViewMode: String, CaseIterable {
     case loupe = "Loupe"
 }
 
+/// Fence is installed on MainActor before queuing Trash; every sidecar write checks
+/// it on the same serial file queue. An already-running write finishes before Trash.
+private final class FileMutationFence: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids = Set<String>(), paths = Set<String>()
+    func block(_ assets: [PhotoAsset]) {
+        lock.lock(); defer { lock.unlock() }
+        for asset in assets {
+            ids.insert(asset.id)
+            for url in [asset.fileURL] + asset.companionURLs {
+                ids.insert(url.standardizedFileURL.path)
+                paths.insert(url.appendingPathExtension("xmp").standardizedFileURL.path)
+                paths.insert(url.deletingPathExtension().appendingPathExtension("xmp").standardizedFileURL.path)
+            }
+        }
+    }
+    func permits(_ id: String, _ url: URL? = nil) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return !ids.contains(id) && (url == nil || !paths.contains(url!.standardizedFileURL.path))
+    }
+}
+
+public enum WorkspaceMode: String, CaseIterable { case library = "Library", develop = "Develop" }
+public enum DisplayPreviewPolicy { case cameraJPEG, accurate }
+
 @MainActor
 public final class AppState: ObservableObject {
+    @Published public var workspaceMode: WorkspaceMode = .library {
+        didSet {
+            guard oldValue != workspaceMode else { return }
+            if let id = liveDevelopAssetID, let live = liveDevelopXMP,
+               let index = allAssets.firstIndex(where: { $0.id == id }) {
+                allAssets[index].xmp = live
+                debouncedSyncXMP(for: allAssets[index])
+            }
+            liveCommitTask?.cancel(); liveDevelopAssetID = nil; liveDevelopXMP = nil
+            activeDevelopTool = .edit; comparisonMode = .off; isBeforeToggled = false
+            invalidateDisplaySource()
+        }
+    }
+    @Published public private(set) var displaySourceRevision: UInt64 = 0
+    public func previewPolicy(for asset: PhotoAsset, native: Bool) -> DisplayPreviewPolicy {
+        workspaceMode == .library && !asset.xmp.hasDevelopEdits ? .cameraJPEG : .accurate
+    }
+    public func previewLabel(for asset: PhotoAsset, native: Bool) -> String {
+        if previewPolicy(for: asset, native: native) == .cameraJPEG {
+            return native ? "Native JPEG 100%" : "Camera preview (JPEG)"
+        }
+        return workspaceMode == .library ? "Edited preview • accurate + edits" : "Develop • accurate RAW + edits"
+    }
+    public let displayHistogram = DisplayHistogramState()
+    let previewSharpness = PreviewSharpnessState()
+    private func refreshPreviewSharpness() {
+        guard PerformanceSettings.shared.sharpnessEnabled, var asset = primarySelectedAsset,
+              let frame = displayedBitmap, frame.assetID == asset.id,
+              frame.sourceRevision == displaySourceRevision else { return }
+        if liveDevelopAssetID == asset.id, let liveDevelopXMP { asset.xmp = liveDevelopXMP }
+        guard !isBeforeToggled, comparisonMode == .off else { previewSharpness.clear(); return }
+        let processed = previewPolicy(for: asset, native: true) == .accurate
+        guard !processed || frame.accurate else { previewSharpness.clear(); return }
+        // Frame publication is only a scheduling signal, never the score's pixels.
+        // Native ROI publications therefore cannot masquerade as a full-frame input.
+        previewSharpness.submit(asset: asset, revision: displaySourceRevision, processed: processed)
+    }
+    @Published public var isHistogramEnabled: Bool = UserDefaults.standard.bool(forKey: "displayHistogramEnabled") {
+        didSet {
+            UserDefaults.standard.set(isHistogramEnabled, forKey: "displayHistogramEnabled")
+            displayHistogram.enabled = isHistogramEnabled
+            if isHistogramEnabled, let frame = displayedBitmap, frame.assetID == primarySelectedAssetID, (workspaceMode == .library && frame.allowPreviewHistogram) || frame.accurate {
+                displayHistogram.submit(frame.image, label: frame.label)
+            }
+        }
+    }
+    struct DisplayedBitmap {
+        let assetID: String
+        let image: NSImage
+        let label: String
+        let sourceRevision: UInt64
+        let accurate: Bool
+        let allowPreviewHistogram: Bool
+        let readyUptime: TimeInterval
+        let scorePreview: Bool
+    }
+    @Published private(set) var displayedBitmap: DisplayedBitmap?
+    public func publishDisplayedBitmap(_ image: NSImage?, assetID: String?, label: String, accurate: Bool = true, allowPreviewHistogram: Bool = true, scorePreview: Bool = true) {
+        guard let assetID, assetID == primarySelectedAssetID, let image else {
+            displayedBitmap = nil; displayHistogram.clear(); return
+        }
+        displayedBitmap = DisplayedBitmap(assetID: assetID, image: image, label: label, sourceRevision: displaySourceRevision, accurate: accurate, allowPreviewHistogram: allowPreviewHistogram, readyUptime: ProcessInfo.processInfo.systemUptime, scorePreview: scorePreview)
+        refreshPreviewSharpness()
+        displayHistogram.enabled = isHistogramEnabled
+        if (workspaceMode == .library && allowPreviewHistogram) || accurate { displayHistogram.submit(image, label: label) }
+        else { displayHistogram.clear() }
+    }
+    private func invalidateDisplaySource() {
+        previewSharpness.clear()
+        displaySourceRevision &+= 1
+        displayedBitmap = nil; displayHistogram.clear()
+        RAWImageLoader.shared.clearCache()
+        InspectionReadyFrameStore.shared.clearAll()
+        LiveDevelopPreviewEngine.shared.cancelPending()
+        Task { await ProcessedROICacheService.shared.invalidateForRenderingPolicyChange() }
+    }
     // Current directory & assets
     @Published public var currentFolderURL: URL?
-    @Published public var allAssets: [PhotoAsset] = []
+    @Published public var allAssets: [PhotoAsset] = [] {
+        didSet {
+            invalidateCollection()
+            let old = oldValue.first { $0.id == primarySelectedAssetID }
+            let new = allAssets.first { $0.id == primarySelectedAssetID }
+            if old?.xmp.thumbnailDevelopCacheIdentity != new?.xmp.thumbnailDevelopCacheIdentity || old?.dateModified != new?.dateModified || old?.fileSize != new?.fileSize || old?.companionURLs != new?.companionURLs {
+                previewSharpness.clear()
+            }
+        }
+    }
     @Published public var isScanning: Bool = false
     @Published public var scanProgressMessage: String = ""
     
     // Selection state
-    @Published public var selectedAssetIDs: Set<String> = []
-    @Published public var primarySelectedAssetID: String?
+    @Published public var selectedAssetIDs: Set<String> = [] { didSet { selectedAssetsCache = nil } }
+    @Published public var primarySelectedAssetID: String? {
+        didSet { if oldValue != primarySelectedAssetID { displayedBitmap = nil; displayHistogram.clear(); previewSharpness.clear() } }
+    }
     @Published public var selectionAnchorAssetID: String?
     
     // Live Develop State (Isolated for ultra-fast 120fps live slider interaction)
     @Published public var liveDevelopAssetID: String?
-    @Published public var liveDevelopXMP: XMPMetadata?
+    @Published public var liveDevelopXMP: XMPMetadata? { didSet { previewSharpness.clear() } }
     
     // Sync & Copy/Paste Develop State (Lightroom Classic Workflow)
     @Published public var isAutoSyncEnabled: Bool = false
@@ -38,14 +150,15 @@ public final class AppState: ObservableObject {
     @Published public var cropOverlayStyle: CropOverlayStyle = .grid
     
     // Before / After Comparison State (Lightroom Classic Workflow)
-    @Published public var comparisonMode: ComparisonMode = .off
-    @Published public var isBeforeToggled: Bool = false
+    @Published public var comparisonMode: ComparisonMode = .off { didSet { previewSharpness.clear() } }
+    @Published public var isBeforeToggled: Bool = false { didSet { previewSharpness.clear() } }
     @Published public var splitPosition: CGFloat = 0.5
     
     // View state
     @Published public var viewMode: ViewMode = .grid {
         didSet {
             guard oldValue != viewMode else { return }
+            previewSharpness.clear()
             DispatchQueue.main.async {
                 NSApplication.shared.keyWindow?.makeFirstResponder(nil)
             }
@@ -56,8 +169,8 @@ public final class AppState: ObservableObject {
     }
     @Published public var thumbnailSize: CGFloat = 220
     @Published public var gridColumnsCount: Int = 4
-    @Published public var filterCriteria: FilterCriteria = FilterCriteria()
-    @Published public var sortOrder: AssetSortOrder = .captureDateAscending
+    @Published public var filterCriteria: FilterCriteria = FilterCriteria() { didSet { invalidateCollection() } }
+    @Published public var sortOrder: AssetSortOrder = .captureDateAscending { didSet { invalidateCollection() } }
     
     // Sidebar foldout state
     @Published public var isLeftSidebarVisible: Bool = true
@@ -71,6 +184,7 @@ public final class AppState: ObservableObject {
             guard oldValue != isNativeHighlightsEnabled else { return }
             UserDefaults.standard.set(isNativeHighlightsEnabled, forKey: "isNativeHighlightsEnabled")
             NativeHighlightsService.isEnabled = isNativeHighlightsEnabled
+            previewSharpness.clear()
             RAWImageLoader.shared.clearCache()
             InspectionReadyFrameStore.shared.clearAll()
             Task { await ProcessedROICacheService.shared.invalidateForRenderingPolicyChange() }
@@ -94,6 +208,16 @@ public final class AppState: ObservableObject {
     @Published public var showDeleteConfirmation: Bool = false
     @Published public var pendingDeleteAssets: [PhotoAsset] = []
     @Published public var deleteErrorMessage: String?
+    @Published public private(set) var deletingAssetIDs: Set<String> = [] { didSet { invalidateCollection() } }
+    private var trashTasks: [UUID: Task<Void, Never>] = [:]
+    private var trashedAssetIDs: Set<String> = [] { didSet { invalidateCollection() } }
+    private var trashGroupMemberIDs: Set<String> = []
+    private var failedTrashAssets: [String: PhotoAsset] = [:]
+    private let fileMutationFence = FileMutationFence()
+    public func waitForTrashCompletion() async {
+        while let task = trashTasks.values.first { await task.value }
+    }
+    func enqueueFileWorkForTesting(_ work: @escaping @Sendable () -> Void) { xmpWriteQueue.async(execute: work) }
     
     // Watcher & Keyboard Monitor
     private let directoryWatcher = DirectoryWatcher()
@@ -135,6 +259,10 @@ public final class AppState: ObservableObject {
         }
         
         setupKeyMonitor()
+        PerformanceSettings.shared.$sharpnessEnabled.dropFirst().sink { [weak self] enabled in
+            if !enabled { self?.previewSharpness.clear() }
+            else { Task { @MainActor [weak self] in await Task.yield(); self?.refreshPreviewSharpness() } }
+        }.store(in: &previewSubscriptions)
         Publishers.MergeMany(
             $allAssets.map { _ in () }.eraseToAnyPublisher(),
             $primarySelectedAssetID.map { _ in () }.eraseToAnyPublisher(),
@@ -203,6 +331,10 @@ public final class AppState: ObservableObject {
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
+            // Local monitors are app-wide: Settings and other windows own their keys.
+            guard let window = event.window, window.isKeyWindow,
+                  self.photoKeyboardSurfaces.allObjects.contains(where: { $0.window === window }),
+                  window.attachedSheet == nil else { return event }
             if self.handleGlobalKeyEvent(event) {
                 return nil
             }
@@ -453,9 +585,18 @@ public final class AppState: ObservableObject {
     // MARK: - Computed Properties
     
     /// Filtered and sorted assets displayed in Grid / Loupe / Filmstrip
+    private var displayedAssetsCache: [PhotoAsset]?
+    private var selectedAssetsCache: [PhotoAsset]?
+    private func invalidateCollection() {
+        displayedAssetsCache = nil
+        selectedAssetsCache = nil
+    }
     public var displayedAssets: [PhotoAsset] {
-        let filtered = allAssets.filter { filterCriteria.matches(asset: $0) }
-        return sortAssets(filtered, by: sortOrder)
+        if let cached = displayedAssetsCache { return cached }
+        let filtered = allAssets.filter { !deletingAssetIDs.contains($0.id) && !trashedAssetIDs.contains($0.id) && filterCriteria.matches(asset: $0) }
+        let result = sortAssets(filtered, by: sortOrder)
+        displayedAssetsCache = result
+        return result
     }
     
     /// Only scroll to the explicit active photo when it is still in the visible collection.
@@ -492,7 +633,10 @@ public final class AppState: ObservableObject {
     }
     
     public var selectedAssets: [PhotoAsset] {
-        displayedAssets.filter { selectedAssetIDs.contains($0.id) }
+        if let cached = selectedAssetsCache { return cached }
+        let result = displayedAssets.filter { selectedAssetIDs.contains($0.id) }
+        selectedAssetsCache = result
+        return result
     }
     
     // MARK: - Folder Actions
@@ -549,9 +693,13 @@ public final class AppState: ObservableObject {
     }
 
     private func publishFolderAssets(_ assets: [PhotoAsset]) {
-        allAssets = assets
+        var safe = assets.filter { !trashGroupMemberIDs.contains($0.id) && !trashedAssetIDs.contains($0.id) && !deletingAssetIDs.contains($0.id) }
+        let retained = allAssets.filter { deletingAssetIDs.contains($0.id) }
+        safe.append(contentsOf: retained)
+        for failed in failedTrashAssets.values where (currentFolderURL == nil || failed.fileURL.deletingLastPathComponent().standardizedFileURL.path == currentFolderURL?.standardizedFileURL.path) && !safe.contains(where: { $0.id == failed.id }) { safe.append(failed) }
+        allAssets = safe
         let sorted = displayedAssets
-        if primarySelectedAssetID == nil || !assets.contains(where: { $0.id == primarySelectedAssetID }) {
+        if primarySelectedAssetID == nil || !safe.contains(where: { $0.id == primarySelectedAssetID }) {
             if let first = sorted.first {
                 primarySelectedAssetID = first.id
                 selectionAnchorAssetID = first.id
@@ -604,6 +752,7 @@ public final class AppState: ObservableObject {
     /// - Toggle (Control/Command + click): toggle individual asset in selection without resetting others
     /// - Range (Shift + click): select contiguous range of assets between anchor and clicked asset
     public func selectAsset(_ asset: PhotoAsset, isToggle: Bool = false, isRange: Bool = false) {
+        guard !deletingAssetIDs.contains(asset.id), !trashedAssetIDs.contains(asset.id) else { return }
         photoBrowserHasKeyboardFocus = true
         // Resign any active text input focus (like search bar) when user clicks to select photos
         if let responder = NSApplication.shared.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
@@ -815,22 +964,36 @@ public final class AppState: ObservableObject {
 
     /// This setting belongs to the selected photo, not UserDefaults or Auto Sync.
     public func setAdvancedRAWHighlightRecovery(_ enabled: Bool, for assetID: String) {
+        guard fileMutationFence.permits(assetID) else { return }
         guard let index = allAssets.firstIndex(where: { $0.id == assetID }) else { return }
         var xmp = (liveDevelopAssetID == assetID ? liveDevelopXMP : nil) ?? allAssets[index].xmp
         guard xmp.advancedRAWHighlightRecovery != enabled else { return }
         xmp.advancedRAWHighlightRecovery = enabled
         let asset = allAssets[index]
-        // A checkbox is discrete: finish all previously queued XMP writes and
-        // persist it before reporting success, even if the app closes at once.
+        // Preserve the discrete durable-save behavior when idle. During Trash,
+        // next-photo edits must queue rather than synchronously wait on MainActor.
         xmpDebounceTasks[assetID]?.cancel()
         xmpDebounceTasks.removeValue(forKey: assetID)
-        do {
-            try xmpWriteQueue.sync {
-                try XMPWriter.write(metadata: xmp, to: asset.sidecarXMPURL, originalFilename: asset.filename)
+        if deletingAssetIDs.isEmpty {
+            do {
+                try xmpWriteQueue.sync {
+                    try XMPWriter.write(metadata: xmp, to: asset.sidecarXMPURL, originalFilename: asset.filename)
+                }
+            } catch {
+                xmpSaveError = "Could not save \(asset.filename): \(error.localizedDescription)"
+                return
             }
-        } catch {
-            xmpSaveError = "Could not save \(asset.filename): \(error.localizedDescription)"
-            return
+        } else {
+            let metadata = xmp, sidecarURL = asset.sidecarXMPURL, fence = fileMutationFence
+            xmpWriteQueue.async { [weak self] in
+                guard fence.permits(assetID, sidecarURL) else { return }
+                do {
+                    try XMPWriter.write(metadata: metadata, to: sidecarURL, originalFilename: asset.filename)
+                } catch {
+                    let message = "Could not save \(asset.filename): \(error.localizedDescription)"
+                    Task { @MainActor [weak self] in self?.xmpSaveError = message }
+                }
+            }
         }
         xmpSaveError = nil
         liveCommitTask?.cancel()
@@ -845,8 +1008,9 @@ public final class AppState: ObservableObject {
     
     /// Updates develop/Basic settings on the primary selected asset with instant isolated live update and debounced catalog commit
     public func updateDevelopSettings(for assetID: String? = nil, isDragging: Bool = false, mutate: (inout XMPMetadata) -> Void) {
+        if workspaceMode != .develop { workspaceMode = .develop }
         let targetID = assetID ?? primarySelectedAssetID
-        guard let id = targetID, let index = allAssets.firstIndex(where: { $0.id == id }) else { return }
+        guard let id = targetID, fileMutationFence.permits(id), let index = allAssets.firstIndex(where: { $0.id == id }) else { return }
         
         var currentXMP = (liveDevelopAssetID == id && liveDevelopXMP != nil) ? liveDevelopXMP! : allAssets[index].xmp
         mutate(&currentXMP)
@@ -866,7 +1030,7 @@ public final class AppState: ObservableObject {
             
             if applyAutoSync {
                 for otherID in otherSelectedIDs {
-                    if let otherIdx = allAssets.firstIndex(where: { $0.id == otherID }) {
+                    if fileMutationFence.permits(otherID), let otherIdx = allAssets.firstIndex(where: { $0.id == otherID }) {
                         mutate(&allAssets[otherIdx].xmp)
                         debouncedSyncXMP(for: allAssets[otherIdx])
                     }
@@ -876,7 +1040,7 @@ public final class AppState: ObservableObject {
             // Dragging in progress: debounce catalog mutation by 200ms so main thread is 100% free for 120fps slider UI
             if applyAutoSync {
                 for otherID in otherSelectedIDs {
-                    if let otherIdx = allAssets.firstIndex(where: { $0.id == otherID }) {
+                    if fileMutationFence.permits(otherID), let otherIdx = allAssets.firstIndex(where: { $0.id == otherID }) {
                         mutate(&allAssets[otherIdx].xmp)
                     }
                 }
@@ -889,7 +1053,7 @@ public final class AppState: ObservableObject {
         liveCommitTask?.cancel()
         liveCommitTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
-            guard !Task.isCancelled, let self = self else { return }
+            guard !Task.isCancelled, let self = self, self.fileMutationFence.permits(assetID) else { return }
             if self.liveDevelopAssetID == assetID, let live = self.liveDevelopXMP, index < self.allAssets.count, self.allAssets[index].id == assetID {
                 self.allAssets[index].xmp = live
                 self.debouncedSyncXMP(for: self.allAssets[index])
@@ -922,6 +1086,7 @@ public final class AppState: ObservableObject {
         var changed: [PhotoAsset] = []
         var liveTargetXMP: XMPMetadata?
         for targetID in targets {
+            guard fileMutationFence.permits(targetID) else { continue }
             guard let idx = indices[targetID] else { continue }
             var targetXMP = updatedAssets[idx].xmp
             options.apply(from: sourceXMP, to: &targetXMP)
@@ -961,6 +1126,7 @@ public final class AppState: ObservableObject {
         }
         
         for targetID in targets {
+            guard fileMutationFence.permits(targetID) else { continue }
             guard let idx = allAssets.firstIndex(where: { $0.id == targetID }) else { continue }
             var targetXMP = allAssets[idx].xmp
             copiedSyncOptions.apply(from: sourceXMP, to: &targetXMP)
@@ -974,6 +1140,7 @@ public final class AppState: ObservableObject {
     
     /// Resets develop settings to default zero for the asset
     public func resetDevelopSettings(for assetID: String? = nil) {
+        invalidateDisplaySource()
         updateDevelopSettings(for: assetID, isDragging: false) { xmp in
             xmp.resetDevelopSettings()
         }
@@ -1011,6 +1178,7 @@ public final class AppState: ObservableObject {
     
     /// Toggles single-image Before (As Shot) view with \ shortcut
     public func toggleBeforeAfter() {
+        if workspaceMode != .develop { workspaceMode = .develop }
         if comparisonMode != .off {
             comparisonMode = .off
             isBeforeToggled = false
@@ -1021,6 +1189,7 @@ public final class AppState: ObservableObject {
     
     /// Cycles through Before/After comparison modes (Off -> Split -> Side-by-Side -> Top/Bottom -> Off)
     public func cycleComparisonMode(forward: Bool = true) {
+        if workspaceMode != .develop { workspaceMode = .develop }
         if activeDevelopTool == .crop {
             activeDevelopTool = .edit
         }
@@ -1043,6 +1212,7 @@ public final class AppState: ObservableObject {
     
     /// Toggles between Edit (Develop adjustments) and Crop & Straighten mode
     public func toggleCropMode() {
+        if workspaceMode != .develop { workspaceMode = .develop }
         if let responder = NSApplication.shared.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
             DispatchQueue.main.async {
                 NSApplication.shared.keyWindow?.makeFirstResponder(nil)
@@ -1161,6 +1331,7 @@ public final class AppState: ObservableObject {
     }
     
     private func updateAsset(_ updated: PhotoAsset) {
+        guard fileMutationFence.permits(updated.id) else { return }
         if let index = allAssets.firstIndex(where: { $0.id == updated.id }) {
             allAssets[index] = updated
             if liveDevelopAssetID == updated.id {
@@ -1170,13 +1341,17 @@ public final class AppState: ObservableObject {
     }
     
     private func syncXMP(for asset: PhotoAsset) {
+        guard fileMutationFence.permits(asset.id) else { return }
         let xmpURL = asset.sidecarXMPURL
+        let fence = fileMutationFence
         xmpWriteQueue.async {
+            guard fence.permits(asset.id, xmpURL) else { return }
             try? XMPWriter.write(metadata: asset.xmp, to: xmpURL, originalFilename: asset.filename)
         }
     }
     
     private func debouncedSyncXMP(for asset: PhotoAsset) {
+        guard fileMutationFence.permits(asset.id) else { return }
         let assetID = asset.id
         xmpDebounceTasks[assetID]?.cancel()
         
@@ -1305,82 +1480,98 @@ public final class AppState: ObservableObject {
             return
         }
         
-        guard !items.isEmpty else { return }
-        self.pendingDeleteAssets = items
+        let available = items.filter { !deletingAssetIDs.contains($0.id) && !trashedAssetIDs.contains($0.id) }
+        guard !available.isEmpty else { return }
+        self.pendingDeleteAssets = available
         self.showDeleteConfirmation = true
     }
     
-    /// Confirms and executes moving pending photo(s) and any associated XMP sidecar(s) to macOS Trash
+    /// Serial background, Trash-only group transaction. Associated-file moves are
+    /// not atomic; on a failure the group is retained and moved paths are reported.
     public func confirmDeletePendingPhotos(fileManager: FileManager = .default) {
-        guard !pendingDeleteAssets.isEmpty else { return }
-        
-        let deletedAssets = pendingDeleteAssets
-        let currentList = displayedAssets
-        let pendingIDs = Set(deletedAssets.map { $0.id })
-        var deletedIDs = Set<String>()
-        var failures: [String] = []
-        deleteErrorMessage = nil
-        
-        // Calculate the next candidate asset to select after deletion
-        var nextAssetToSelect: PhotoAsset?
-        if let primaryID = primarySelectedAssetID,
-           let currentIndex = currentList.firstIndex(where: { $0.id == primaryID }) {
-            // Try subsequent items first
-            if let nextItem = currentList[(currentIndex + 1)...].first(where: { !pendingIDs.contains($0.id) }) {
-                nextAssetToSelect = nextItem
-            } else if let prevItem = currentList[..<currentIndex].reversed().first(where: { !pendingIDs.contains($0.id) }) {
-                nextAssetToSelect = prevItem
-            }
+        let assets = pendingDeleteAssets.filter { !deletingAssetIDs.contains($0.id) }
+        guard !assets.isEmpty else { return }
+        let ids = Set(assets.map(\.id))
+        let list = displayedAssets
+        let index = primarySelectedAssetID.flatMap { id in list.firstIndex { $0.id == id } } ?? 0
+        let next = list.dropFirst(index + 1).first { !ids.contains($0.id) }
+            ?? list.prefix(index).reversed().first { !ids.contains($0.id) }
+        fileMutationFence.block(assets)
+        trashGroupMemberIDs.formUnion(assets.flatMap { ([$0.fileURL] + $0.companionURLs).map { $0.standardizedFileURL.path } })
+        deletingAssetIDs.formUnion(ids)
+        for id in ids { xmpDebounceTasks[id]?.cancel(); xmpDebounceTasks.removeValue(forKey: id) }
+        if let liveID = liveDevelopAssetID, !fileMutationFence.permits(liveID) {
+            liveCommitTask?.cancel(); liveDevelopAssetID = nil; liveDevelopXMP = nil
         }
-        
-        for asset in deletedAssets {
-            var succeeded = true
-            for fileURL in asset.allAssociatedURLs {
-                if fileManager.fileExists(atPath: fileURL.path) {
-                    do {
-                        try fileManager.trashItem(at: fileURL, resultingItemURL: nil)
-                    } catch {
-                        succeeded = false
-                        failures.append("\(fileURL.lastPathComponent): \(error.localizedDescription)")
-                        // Stop this group; never permanently delete after a Trash failure.
-                        break
+        invalidateDisplaySource()
+        folderScanGeneration &+= 1; folderScanTask?.cancel(); folderScanTask = nil; isScanning = false
+        folderRefreshDebounceTask?.cancel()
+        pendingDeleteAssets = []; showDeleteConfirmation = false; deleteErrorMessage = nil
+        selectedAssetIDs.subtract(ids)
+        if primarySelectedAssetID.map(ids.contains) == true {
+            primarySelectedAssetID = next?.id; selectionAnchorAssetID = next?.id
+            if let next { selectedAssetIDs = [next.id] }
+        }
+        // Acquire separate leases before allowing folder navigation to drop its lease.
+        let scopeCandidates = assets.map { $0.fileURL.deletingLastPathComponent() } + [currentFolderURL].compactMap { $0 }
+        let scopes = Set(scopeCandidates).filter { $0.startAccessingSecurityScopedResource() }
+        let queue = xmpWriteQueue
+        let transactionID = UUID()
+        trashTasks[transactionID] = Task { @MainActor in
+            let result: (Set<String>, [String]) = await withCheckedContinuation { continuation in
+                queue.async {
+                    defer { for url in scopes { url.stopAccessingSecurityScopedResource() } }
+                    var succeeded = Set<String>(), errors: [String] = []
+                    for asset in assets {
+                        guard fileManager.fileExists(atPath: asset.fileURL.path) else {
+                            errors.append("\(asset.filename): primary file unavailable or missing; group retained. No companions moved. Restore the primary or reconnect the volume before retrying.")
+                            continue
+                        }
+                        var moved: [String] = [], failed = false
+                        // Evaluate sidecars here, after any already-running XMP write.
+                        for url in asset.allAssociatedURLs {
+                            guard fileManager.fileExists(atPath: url.path) else { continue }
+                            do {
+                                try fileManager.trashItem(at: url, resultingItemURL: nil)
+                                guard !fileManager.fileExists(atPath: url.path) else {
+                                    throw NSError(domain: "LumiBase.Trash", code: 1,
+                                        userInfo: [NSLocalizedDescriptionKey: "Trash returned but source still exists"])
+                                }
+                                moved.append(url.lastPathComponent)
+                            } catch {
+                                failed = true
+                                errors.append("\(asset.filename): failed \(url.lastPathComponent): \(error.localizedDescription). Already moved: \(moved.isEmpty ? "none" : moved.joined(separator: ", "))")
+                                break
+                            }
+                        }
+                        if !failed { succeeded.insert(asset.id) }
                     }
+                    continuation.resume(returning: (succeeded, errors))
                 }
             }
-            if succeeded { deletedIDs.insert(asset.id) }
-        }
-        if !failures.isEmpty {
-            deleteErrorMessage = "Could not move all files to Trash. Failed assets remain in the browser. Some associated files may already be in Trash; restore them in Finder before retrying.\n" + failures.joined(separator: "\n")
-        }
-        
-        // 3. Update memory assets list
-        self.allAssets.removeAll { deletedIDs.contains($0.id) }
-        self.selectedAssetIDs.subtract(deletedIDs)
-        
-        // Keep a failed primary asset selected; advance only after success.
-        if let primary = primarySelectedAssetID, !deletedIDs.contains(primary),
-           allAssets.contains(where: { $0.id == primary }) {
-            // Existing selection is still valid.
-        } else if let next = nextAssetToSelect, !deletedIDs.contains(next.id) {
-            self.primarySelectedAssetID = next.id
-            self.selectionAnchorAssetID = next.id
-            if self.selectedAssetIDs.isEmpty {
-                self.selectedAssetIDs = [next.id]
+            self.trashedAssetIDs.formUnion(result.0)
+            self.deletingAssetIDs.subtract(ids)
+            self.allAssets.removeAll { result.0.contains($0.id) }
+            self.selectedAssetIDs.subtract(result.0)
+            for asset in assets {
+                if result.0.contains(asset.id) { self.failedTrashAssets.removeValue(forKey: asset.id) }
+                else { self.failedTrashAssets[asset.id] = asset }
             }
-        } else if let firstRemaining = self.displayedAssets.first {
-            self.primarySelectedAssetID = firstRemaining.id
-            self.selectionAnchorAssetID = firstRemaining.id
-            self.selectedAssetIDs = [firstRemaining.id]
-        } else {
-            self.primarySelectedAssetID = nil
-            self.selectionAnchorAssetID = nil
-            self.selectedAssetIDs.removeAll()
+            if !result.1.isEmpty {
+                self.deleteErrorMessage = "Trash partially failed. Failed assets are retained; some related files may already be in Trash. Restore moved files in Finder before retrying. Sidecar writes for these groups stay isolated for this session.\n" + result.1.joined(separator: "\n")
+            }
+            // Never replace a user's newer selection. If no next photo existed,
+            // restore the failed photo as an explicit recovery target.
+            if self.primarySelectedAssetID == nil, let failed = assets.first(where: { !result.0.contains($0.id) }),
+               self.allAssets.contains(where: { $0.id == failed.id }) {
+                self.primarySelectedAssetID = failed.id; self.selectionAnchorAssetID = failed.id
+                self.selectedAssetIDs = [failed.id]
+            }
+            self.trashTasks.removeValue(forKey: transactionID)
+            self.scheduleFolderRefresh()
         }
-        
-        self.pendingDeleteAssets = []
-        self.showDeleteConfirmation = false
     }
-    
+
     public func cancelDelete() {
         self.pendingDeleteAssets = []
         self.showDeleteConfirmation = false

@@ -12,11 +12,12 @@ struct LumiBaseApp: App {
     }
     
     private var appTitleWithVersion: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.13.2"
-        return "LumiBase v\(version)"
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.14.0"
+        return "LumiBase Fast Library v\(version)"
     }
     
     var body: some Scene {
+        Settings { PerformanceSettingsView(settings: .shared) }
         WindowGroup(appTitleWithVersion) {
             MainLayoutView()
                 .frame(minWidth: 900, minHeight: 600)
