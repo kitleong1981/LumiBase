@@ -125,6 +125,9 @@ public final class AdobeColorPipeline: Sendable {
         let isRawImage = baseHolder?.isRaw ?? false
         let isAdvancedRaw = isRawImage && NativeHighlightsService.isAdvancedEnabled(for: xmp)
         
+        // 5a. Tone curve highlight recovery
+        // (LocalHighlightsOperator bypassed to restore natural cloud 3D volume and prevent muddy flattening)
+        
         let hasToneEdits = (hl != 0) || (sh != 0) || (whites != 0) || (blacks != 0) || (dehaze != 0)
         if hasToneEdits {
             // For RAW files with Advanced RAW Highlight Recovery enabled, preserve calibrated weights for AcceptedHighlightsKernel parity;
@@ -136,21 +139,22 @@ public final class AdobeColorPipeline: Sendable {
             
             if isAdvancedRaw {
                 hlP1 = 0.0
-                hlP2 = hlFactor * 0.08
-                hlP3 = hlFactor * 0.08
+                hlP2 = 0.0
+                hlP3 = 0.0
                 hlP4 = 0.0
             } else {
                 if hlFactor < 0 {
-                    // PV2012 negative highlights: smoothly roll off top specular highlights while
-                    // preserving healthy contrast slope across 0.50~0.75 so cloud textures and silhouettes stay crisp.
-                    hlP1 = hlFactor * 0.02
-                    hlP2 = hlFactor * 0.08
-                    hlP3 = hlFactor * 0.15
-                    hlP4 = hlFactor * 0.13
+                    // Highlights -100 rolls off the shoulder (p3) to recover cloud details,
+                    // while preserving the White Point (p4 = 1.0) and midtones (p2 = 0.50),
+                    // exactly matching Lightroom and Lightcraft!
+                    hlP1 = 0.0
+                    hlP2 = 0.0
+                    hlP3 = hlFactor * 0.10
+                    hlP4 = 0.0
                 } else {
                     hlP1 = 0.0
-                    hlP2 = hlFactor * 0.04
-                    hlP3 = hlFactor * 0.14
+                    hlP2 = 0.0
+                    hlP3 = hlFactor * 0.12
                     hlP4 = 0.0
                 }
             }
@@ -158,12 +162,8 @@ public final class AdobeColorPipeline: Sendable {
             let p0Y = max(0.0, min(0.04, 0.0 + (bFactor * 0.01)))
             let p1Y = max(0.12, min(0.35, 0.24 + hlP1 + (shFactor * 0.06) + (bFactor * 0.20)))
             let p2Y = max(0.40, min(0.65, 0.50 + hlP2 + (shFactor * 0.03)))
-            let p3Y = isAdvancedRaw
-                ? max(0.60, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
-                : max(0.55, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
-            let p4Y = isAdvancedRaw
-                ? max(0.85, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
-                : max(0.85, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
+            let p3Y = max(0.60, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
+            let p4Y = max(0.95, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
             
             current = current.applyingFilter("CIToneCurve", parameters: [
                 "inputPoint0": CIVector(x: 0.0, y: p0Y),
@@ -174,9 +174,8 @@ public final class AdobeColorPipeline: Sendable {
             ])
             
             // 5b. Highlight Micro-Contrast Compensation (PV2012 Cloud Volume & Edge Contrast)
-            // When highlights are pulled down (hlFactor < 0), the 1D tone curve slope flattens across 0.25~0.75,
-            // compressing cloud volume and texture. Inject adaptive micro-contrast in the mid-to-high luminance
-            // zone, masked away from shadows/silhouettes to preserve crisp cloud 3D depth matching Lightroom.
+            // When highlights are pulled down (hlFactor < 0), inject adaptive micro-contrast in the
+            // mid-to-high luminance zone, masked away from shadows/silhouettes to restore natural 3D depth.
             if !isAdvancedRaw && hlFactor < 0 {
                 let maskLuma = current.applyingFilter("CIColorMatrix", parameters: [
                     "inputRVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0.0),
@@ -285,3 +284,4 @@ public final class AdobeColorPipeline: Sendable {
         return current
     }
 }
+

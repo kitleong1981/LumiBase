@@ -157,7 +157,19 @@ public struct TopFilterBarView: View {
                     .buttonStyle(.plain)
                     .help("Reset All Filters")
                 }
-        }
+                
+                // App Settings Link
+                SettingsLink {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 11))
+                        .foregroundColor(LightroomTheme.textSecondary)
+                        .padding(4)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+                .help("Preferences / Settings (⌘,)")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
