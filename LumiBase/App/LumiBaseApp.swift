@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct LumiBaseApp: App {
+    @NSApplicationDelegateAdaptor(WorkspaceReopenDelegate.self) private var appDelegate
     init() {
         if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let iconImage = NSImage(contentsOf: iconURL) {
@@ -17,9 +18,11 @@ struct LumiBaseApp: App {
     }
     
     var body: some Scene {
-        Settings { PerformanceSettingsView(settings: .shared) }
-        WindowGroup(appTitleWithVersion) {
+        // SwiftUI uses the first scene for launch and standard Dock/Finder reopen.
+        // Settings must not be the default scene or no workspace is created.
+        WindowGroup(appTitleWithVersion, id: "workspace") {
             MainLayoutView()
+                .background(WorkspaceReopenRegistration(delegate: appDelegate, isWorkspace: true))
                 .frame(minWidth: 900, minHeight: 600)
                 .preferredColorScheme(.dark)
                 .navigationTitle(appTitleWithVersion)
@@ -187,5 +190,61 @@ struct LumiBaseApp: App {
                 }
             }
         }
+        Settings {
+            PerformanceSettingsView(settings: .shared)
+                .background(WorkspaceReopenRegistration(delegate: appDelegate, isWorkspace: false))
+        }
+    }
+}
+
+/// A visible Settings window is not a workspace. Only an explicit Dock/Finder
+/// reopen requests the workspace; ordinary activation never creates a window.
+@MainActor final class WorkspaceReopenDelegate: NSObject, NSApplicationDelegate {
+    var openWorkspace: (() -> Void)?
+    private var opening = false
+    private var hasPresentedWorkspace = false
+    private let workspaceWindows = NSHashTable<NSWindow>.weakObjects()
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // The initial LaunchServices open can arrive before SwiftUI creates its
+        // default scene. Let launch finish instead of requesting a second scene.
+        guard hasPresentedWorkspace else { return true }
+        if let window = sender.windows.first(where: { workspaceWindows.contains($0) }) {
+            window.makeKeyAndOrderFront(nil)
+        } else if !opening, let openWorkspace {
+            opening = true
+            openWorkspace()
+        }
+        return false
+    }
+
+    func registeredWorkspace(_ window: NSWindow? = nil) {
+        if let window { workspaceWindows.add(window) }
+        hasPresentedWorkspace = true
+        opening = false
+    }
+}
+
+private struct WorkspaceReopenRegistration: NSViewRepresentable {
+    @Environment(\.openWindow) private var openWindow
+    let delegate: WorkspaceReopenDelegate
+    let isWorkspace: Bool
+
+    final class Surface: NSView {
+        var register: ((NSWindow) -> Void)?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { register?(window) }
+        }
+    }
+    func makeNSView(context: Context) -> Surface { Surface() }
+    func updateNSView(_ view: Surface, context: Context) {
+        delegate.openWorkspace = { openWindow(id: "workspace") }
+        view.register = { window in
+            guard isWorkspace else { return }
+            delegate.registeredWorkspace(window)
+        }
+        if let window = view.window { view.register?(window) }
     }
 }

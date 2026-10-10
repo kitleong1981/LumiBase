@@ -5,6 +5,11 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.11 Fast Library] - 2026-10-09
+
+### Fixed
+- Put the workspace WindowGroup before Settings so ordinary launch creates the workspace, not only Settings. Handle explicit Dock/Finder reopen while Settings remains visible, coalescing scene requests and reusing registered main windows without altering restoration identifiers or forcing windows on activation. Preserve performance preferences and keyboard routing. See `docs/1.14.11-fast-library-zhTW.md` for real packaged-window RED/GREEN and retained native-focus failures.
+
 ## [1.13.2] - 2026-10-05
 
 ### Fixed
