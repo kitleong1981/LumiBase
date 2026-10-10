@@ -1075,10 +1075,6 @@ public struct LoupeView: View {
                         .buttonStyle(.plain)
                         .help("Toggle Zoom 100% / Fit (hold / double-click; Z)")
 
-                        if appState.workspaceMode == .library {
-                            SettingsLink { Image(systemName: "gearshape") }
-                                .help("Library performance and cache settings (⌘,)")
-                        }
                         if appState.workspaceMode == .develop {
                             Button {
                                 roiPrototypeToggle.toggle()

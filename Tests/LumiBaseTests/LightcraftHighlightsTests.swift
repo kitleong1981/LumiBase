@@ -150,4 +150,41 @@ final class LightcraftHighlightsTests: XCTestCase {
         let size = (try? FileManager.default.attributesOfItem(atPath: outURL.path)[.size] as? Int) ?? 0
         XCTAssertGreaterThan(size, 0)
     }
+    
+    @MainActor
+    func testHighlightPreviewQualitySettingsAndFastRender() async throws {
+        let arwURL = URL(fileURLWithPath: "/Volumes/Super SSD/Photo/Temp/09-17_淡江大橋/A7C00904.ARW")
+        guard FileManager.default.fileExists(atPath: arwURL.path) else { return }
+        
+        let settings = PerformanceSettings.shared
+        let originalQuality = settings.highlightPreviewQuality
+        defer { settings.highlightPreviewQuality = originalQuality }
+        
+        // 1. Verify fast mode
+        settings.highlightPreviewQuality = .fast
+        XCTAssertEqual(PerformanceSettings.currentHighlightPreviewQuality, .fast)
+        
+        // 2. Load holder and test renderProcessedAsync in fast mode
+        var xmp = XMPMetadata()
+        xmp.highlights2012 = -100
+        guard let holder = await RAWImageLoader.shared.loadBaseHolder(from: arwURL, xmp: xmp) else {
+            XCTFail("Failed to load RAW base holder")
+            return
+        }
+        
+        let t0 = ProcessInfo.processInfo.systemUptime
+        let fastRender = await RAWImageLoader.shared.renderProcessedAsync(baseHolder: holder, cameraModel: "ILCE-7CM2", xmp: xmp, fullResolution: false)
+        let fastElapsed = (ProcessInfo.processInfo.systemUptime - t0) * 1000
+        XCTAssertNotNil(fastRender)
+        fputs(">>> Fast preview render took: \(String(format: "%.1f", fastElapsed))ms\n", stderr)
+        
+        // 3. Switch to full mode and verify persistence and render
+        settings.highlightPreviewQuality = .full
+        XCTAssertEqual(PerformanceSettings.currentHighlightPreviewQuality, .full)
+        let t1 = ProcessInfo.processInfo.systemUptime
+        let fullRender = await RAWImageLoader.shared.renderProcessedAsync(baseHolder: holder, cameraModel: "ILCE-7CM2", xmp: xmp, fullResolution: false)
+        let fullElapsed = (ProcessInfo.processInfo.systemUptime - t1) * 1000
+        XCTAssertNotNil(fullRender)
+        fputs(">>> Full preview render took: \(String(format: "%.1f", fullElapsed))ms\n", stderr)
+    }
 }

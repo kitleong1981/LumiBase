@@ -263,6 +263,11 @@ public final class AppState: ObservableObject {
             if !enabled { self?.previewSharpness.clear() }
             else { Task { @MainActor [weak self] in await Task.yield(); self?.refreshPreviewSharpness() } }
         }.store(in: &previewSubscriptions)
+        PerformanceSettings.shared.$highlightPreviewQuality.dropFirst().sink { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.highlightsRenderRevision &+= 1
+            }
+        }.store(in: &previewSubscriptions)
         Publishers.MergeMany(
             $allAssets.map { _ in () }.eraseToAnyPublisher(),
             $primarySelectedAssetID.map { _ in () }.eraseToAnyPublisher(),

@@ -154,13 +154,13 @@ public final class PhotoExportService: @unchecked Sendable {
                 let sema = DispatchSemaphore(value: 0)
                 var result: CIImage?
                 DispatchQueue.global(qos: .userInitiated).async {
-                    result = NativeHighlightsService.shared.image(source: recipe, xmp: asset.xmp, cameraModel: asset.cameraMetadata.model, neutralDomain: .nativeRAWExport)
+                    result = NativeHighlightsService.shared.image(source: recipe, xmp: asset.xmp, cameraModel: asset.cameraMetadata.model, isFullRes: true, neutralDomain: .nativeRAWExport)
                     sema.signal()
                 }
                 sema.wait()
                 nativeImage = result
             } else {
-                nativeImage = NativeHighlightsService.shared.image(source: recipe, xmp: asset.xmp, cameraModel: asset.cameraMetadata.model, neutralDomain: .nativeRAWExport)
+                nativeImage = NativeHighlightsService.shared.image(source: recipe, xmp: asset.xmp, cameraModel: asset.cameraMetadata.model, isFullRes: true, neutralDomain: .nativeRAWExport)
             }
             guard let native = nativeImage else {
                 throw ExportError.failedToRenderImage("Highlights require a current source and off-main render; preparation was cancelled or failed")
