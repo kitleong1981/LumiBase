@@ -140,16 +140,20 @@ public struct PhotoGridItemView: View {
     
     @MainActor
     private func loadThumbnail() async {
-        isLoading = true
-        thumbnail = nil
-        if isPrimary { onPreview(nil) }
+        if thumbnail == nil {
+            isLoading = true
+        }
         let loaded = asset.xmp.hasDevelopEdits
             ? await ThumbnailLoader.shared.loadThumbnail(for: asset, maxPixelSize: Int(size * 2))
             : await ThumbnailLoader.shared.loadCameraPreview(for: asset, maxPixelSize: Int(size * 2))
         guard !Task.isCancelled else { return }
         self.thumbnail = loaded
         self.thumbnailIdentity = previewIdentity
-        if isPrimary { onPreview(loaded) }
+        if isPrimary {
+            DispatchQueue.main.async {
+                onPreview(loaded)
+            }
+        }
         self.isLoading = false
     }
 }

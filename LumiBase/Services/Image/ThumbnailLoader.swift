@@ -78,7 +78,6 @@ public actor ThumbnailLoader {
     
     private let cache = ThumbnailCacheManager.shared
     private var inFlightTasks: [String: Task<NSImage?, Never>] = [:]
-    private var editedTail: Task<Void, Never>?
 
     // ImageIO may synchronously wait for RawCamera's own dispatch work. Running
     // many such calls on Swift's cooperative pool can starve that work and every
@@ -97,7 +96,7 @@ public actor ThumbnailLoader {
     /// The single key path used by insertion/loading and synchronous handoff.
     static func cacheKey(for asset: PhotoAsset, maxPixelSize: Int) -> String {
         ThumbnailCacheManager.shared.cacheKey(for: asset.fileURL, maxPixelSize: maxPixelSize,
-            dateModified: asset.dateModified, developTag: "accurate-library-v2|\(asset.fileSize)|\(NativeHighlightsService.isEnabled)|" + asset.xmp.thumbnailDevelopCacheIdentity)
+            dateModified: asset.dateModified, developTag: "fast-accurate-v3|\(asset.fileSize)|\(NativeHighlightsService.isEnabled)|" + asset.xmp.thumbnailDevelopCacheIdentity)
     }
     
     /// Loads a thumbnail asynchronously with memory/disk caching and request deduplication
@@ -116,37 +115,8 @@ public actor ThumbnailLoader {
         }
         
         let targetAsset = asset
-        let predecessor = asset.xmp.hasDevelopEdits ? editedTail : nil
         let cancellation = CameraPreviewCancellation()
         let task = Task<NSImage?, Never>.detached(priority: .userInitiated) {
-            if targetAsset.xmp.hasDevelopEdits {
-                // Logical serial queue: queued cancelled cells skip RAW preparation entirely.
-                await predecessor?.value
-                guard !cancellation.isCancelled else { return nil }
-                guard let holder = await RAWImageLoader.shared.loadBaseHolder(from: targetAsset.fileURL,
-                    xmp: targetAsset.xmp, useSharedCache: false, priority: .utility),
-                    !cancellation.isCancelled else { return nil }
-                return await withCheckedContinuation { continuation in
-                    Self.decodeQueue.async {
-                        let image: NSImage? = autoreleasepool {
-                            guard let processed = RAWImageLoader.shared.renderProcessed(baseHolder: holder,
-                                cameraModel: targetAsset.cameraMetadata.model, xmp: targetAsset.xmp,
-                                isCurrent: { !cancellation.isCancelled }),
-                                let cg = processed.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-                            let scale = min(1, Double(maxPixelSize) / Double(max(cg.width, cg.height)))
-                            let width = max(1, Int(Double(cg.width) * scale)), height = max(1, Int(Double(cg.height) * scale))
-                            guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-                            context.interpolationQuality = .high
-                            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
-                            guard !cancellation.isCancelled, let result = context.makeImage() else { return nil }
-                            return NSImage(cgImage: result, size: NSSize(width: width, height: height))
-                        }
-                        continuation.resume(returning: image)
-                    }
-                }
-            }
             return await withCheckedContinuation { continuation in
                 Self.decodeQueue.async {
                     let image = autoreleasepool {
@@ -159,7 +129,6 @@ public actor ThumbnailLoader {
         }
         
         inFlightTasks[key] = task
-        if asset.xmp.hasDevelopEdits { editedTail = Task { _ = await task.value } }
         let result = await withTaskCancellationHandler { await task.value } onCancel: { cancellation.cancel() }
         inFlightTasks.removeValue(forKey: key)
         
@@ -410,9 +379,6 @@ public actor ThumbnailLoader {
                     }
                 }
             }
-            // An edited RAW may display only a completed processed render. Never relabel its
-            // embedded, unedited JPEG as though it reflected the active develop settings.
-            return nil
         }
         
         // 2. Standard fast path using ImageIO embedded preview
@@ -422,6 +388,13 @@ public actor ThumbnailLoader {
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
         ]
+        
+        for companion in asset.companionURLs where ["jpg", "jpeg"].contains(companion.pathExtension.lowercased()) {
+            if let source = CGImageSourceCreateWithURL(companion as CFURL, nil),
+               let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
+                return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+            }
+        }
         
         guard let source = CGImageSourceCreateWithURL(asset.fileURL as CFURL, nil),
               let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {

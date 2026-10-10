@@ -243,12 +243,12 @@ struct InspectionDisplay {
         return revision.next()
     }
     mutating func beginCameraSelection(assetID: String, filename: String, preserveCurrent: Bool) -> UUID {
+        beginSelection(assetID: assetID, filename: filename, preserveCurrent: preserveCurrent)
+    }
+    mutating func beginSelection(assetID: String, filename: String, preserveCurrent: Bool = false) -> UUID {
         if preserveCurrent, owns(assetID: assetID), image != nil {
             return revision.next()
         }
-        return beginSelection(assetID: assetID, filename: filename)
-    }
-    mutating func beginSelection(assetID: String, filename: String) -> UUID {
         let ticket = revision.next()
         self.assetID = assetID
         image = nil
@@ -300,8 +300,8 @@ struct InspectionDisplay {
 }
 
 enum InspectionLoadTransition {
-    static func beginSelection(for asset: PhotoAsset, display: inout InspectionDisplay) -> UUID {
-        display.beginSelection(assetID: asset.id, filename: asset.filename)
+    static func beginSelection(for asset: PhotoAsset, display: inout InspectionDisplay, preserveCurrent: Bool = false) -> UUID {
+        display.beginSelection(assetID: asset.id, filename: asset.filename, preserveCurrent: preserveCurrent)
     }
 }
 
@@ -1374,7 +1374,7 @@ public struct LoupeView: View {
         .onChange(of: appState.primarySelectedAsset?.xmp.thumbnailDevelopCacheIdentity) { _, _ in
             appState.previewSharpness.clear()
         }
-        .task(id: "\(appState.primarySelectedAssetID ?? "")|\(appState.primarySelectedAsset?.dateModified.timeIntervalSinceReferenceDate ?? 0)|\(appState.primarySelectedAsset?.fileSize ?? 0)|\(appState.displaySourceRevision)|\(selectedUsesCamera && is100PercentZoom)|\(appState.primarySelectedAsset?.xmp.thumbnailDevelopCacheIdentity ?? "")|\(nativeRAWFallbackIdentity ?? "")|\(selectedUsesCamera)") {
+        .task(id: "\(appState.primarySelectedAssetID ?? "")|\(appState.primarySelectedAsset?.dateModified.timeIntervalSinceReferenceDate ?? 0)|\(appState.primarySelectedAsset?.fileSize ?? 0)|\(appState.displaySourceRevision)|\(selectedUsesCamera && is100PercentZoom)|\(nativeRAWFallbackIdentity ?? "")|\(selectedUsesCamera)") {
             await loadSelectedImage()
             if let asset = appState.primarySelectedAsset {
                 updateBeforeImage(for: asset)
@@ -1536,9 +1536,10 @@ public struct LoupeView: View {
         cachedROISelectedPreview = nil
         cachedROISelectedPreviewSettings = nil
         imageError = nil
-        isLoading = false
-        currentBaseHolder = nil
-        holderAssetID = nil
+        if holderAssetID != appState.primarySelectedAssetID {
+            currentBaseHolder = nil
+            holderAssetID = nil
+        }
         guard let asset = appState.primarySelectedAsset else {
             display = InspectionDisplay()
             finishCurrentROIForeground()
@@ -1550,16 +1551,17 @@ public struct LoupeView: View {
         let camera = selectedUsesCamera
         let cameraVersion = cameraAssetVersion(asset)
         let preserveCamera = camera && displayIsCamera && displaySourceVersion == sourceRevision && display.owns(assetID: targetID) && displayCameraAssetVersion == cameraVersion
+        let preserveDevelop = !camera && display.owns(assetID: targetID) && display.image != nil
         displayCameraAssetVersion = cameraVersion
         displaySourceVersion = sourceRevision
         displayIsCamera = camera
         beforeRenderTask?.cancel(); beforeImage = nil
-        if !preserveCamera { appState.publishDisplayedBitmap(nil, assetID: nil, label: "") }
+        if !preserveCamera && !preserveDevelop { appState.publishDisplayedBitmap(nil, assetID: nil, label: "") }
         let frameTicket = camera
             ? display.beginCameraSelection(assetID: targetID, filename: asset.filename, preserveCurrent: preserveCamera)
-            : InspectionLoadTransition.beginSelection(for: asset, display: &display)
+            : InspectionLoadTransition.beginSelection(for: asset, display: &display, preserveCurrent: preserveDevelop)
         displayTicket = frameTicket
-        isLoading = true
+        isLoading = !(preserveCamera || preserveDevelop)
         startROIForeground(owner: frameTicket.uuidString)
         if camera {
             // Deliberately ignore develop display settings; metadata remains untouched.

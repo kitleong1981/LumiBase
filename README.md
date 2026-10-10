@@ -1,5 +1,11 @@
 # LumiBase
 
+## Fast Library 1.14.12：修正預覽滑桿黑畫面轉圈與縮圖卡死
+
+修正 Develop 模式拖曳曝光、亮部、陰影等滑桿時畫面變黑並轉菊花問題：移除選取任務中的快取識別碼觸發器，改由 GPU `LiveDevelopPreviewEngine` 進行即時調色渲染，且在同照片選取時保留已載入畫面與解碼快取，達成真正無縫滑動。同時修復縮圖背景載入排隊卡死與高光過曝時的色階斷裂問題。
+
+詳見 [1.14.12 預覽與縮圖問題修復](docs/1.14.12-fast-library-zhTW.md)。
+
 ## Fast Library 1.14.11：修正啟動只開 Settings
 
 主 WindowGroup 改為預設 launch scene；主窗關閉、Settings 保留時，Finder／Dock 明確 reopen 會回到主工作區，不在普通 activate 強制開窗，也不重複建立已有主窗。保留原本 ROI／sharpness 偏好、前版 HOLD 點擊錨點與鍵盤路由，不清除 preferences。

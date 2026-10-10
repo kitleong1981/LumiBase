@@ -5,6 +5,21 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.12 Fast Library] - 2026-10-10
+
+### Fixed
+- **Develop Preview Blank Screen & Spinner During Slider Drag (`LoupeView`)**:
+  - Removed develop settings cache identity from `.task(id:)` selection reload trigger. Adjusting Exposure, Highlights, Shadows, and other sliders now updates immediately through the dedicated GPU `LiveDevelopPreviewEngine` without aborting active tasks or triggering full RAW re-decodes.
+  - Added `preserveCurrent` option to `InspectionDisplay.beginSelection` and `InspectionLoadTransition.beginSelection`. Adjusting develop settings on the same photo no longer clears the displayed image to black or activates the loading spinner.
+  - Preserved resident `currentBaseHolder` across non-destructive adjustments, preventing unnecessary base image decodes.
+- **Thumbnail Loading Hang & Color Artifacts (`ThumbnailLoader`, `NativeHighlightsService`, `AppState`)**:
+  - Replaced serialized single-file RAW decode queue (`editedTail`) with parallel background decoding, restoring instant thumbnail rendering across large directories.
+  - Enabled lightweight draft RAW decoding with fallback to companion/embedded JPEG, eliminating permanent thumbnail loading spinners.
+  - Updated thumbnail cache key to `fast-accurate-v3` to automatically invalidate broken thumbnail caches.
+  - Disabled experimental `NativeHighlightsService` by default (`isEnabled = false`), fixing high dynamic range solarization, neon green shadows, and posterized highlights on backlit sunset photos.
+- **Photo Grid Selection Flicker (`PhotoGridItemView`)**:
+  - Removed `onPreview(nil)` from thumbnail load lifecycle, avoiding blank preview flashing when thumbnails refresh, and dispatched preview notifications asynchronously on the main actor.
+
 ## [1.14.11 Fast Library] - 2026-10-09
 
 ### Fixed

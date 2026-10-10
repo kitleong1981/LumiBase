@@ -22,8 +22,7 @@ DerivedData/
 !default.perspectivev3
 
 # Swift Package Manager
-.swiftpm/xcode/package.xcworkspace/xcuserdata/
-.swiftpm/configuration/
+.swiftpm/
 
 # macOS
 .DS_Store
