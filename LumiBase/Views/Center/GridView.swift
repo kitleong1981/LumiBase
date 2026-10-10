@@ -3,6 +3,7 @@ import SwiftUI
 /// Main Library Grid View displaying photo assets in a responsive grid
 public struct GridView: View {
     @ObservedObject var appState: AppState
+    @State private var hasRestoredActivePhoto = false
     
     private var gridColumns: [GridItem] {
         [GridItem(.adaptive(minimum: appState.thumbnailSize, maximum: appState.thumbnailSize + 50), spacing: 10)]
@@ -54,6 +55,17 @@ public struct GridView: View {
                             }
                         }
                         .padding(12)
+                        .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                            guard !hasRestoredActivePhoto, size.width > 0, size.height > 0 else { return }
+                            hasRestoredActivePhoto = true
+                            // After content layout, let ScrollViewReader register lazy IDs.
+                            // Restore once per Grid lifetime, never on later manual scrolls.
+                            DispatchQueue.main.async {
+                                guard appState.viewMode == .grid,
+                                      let id = appState.gridScrollTargetID else { return }
+                                proxy.scrollTo(id, anchor: .center)
+                            }
+                        }
                     }
                 }
                 .background(LightroomTheme.workspaceBackground)
@@ -123,7 +135,7 @@ public struct GridView: View {
                     }
                 }
                 .onChange(of: appState.primarySelectedAssetID) { _, newID in
-                    if let newID = newID {
+                    if let newID = newID, newID == appState.gridScrollTargetID {
                         withAnimation(.easeInOut(duration: 0.15)) {
                             proxy.scrollTo(newID, anchor: .center)
                         }

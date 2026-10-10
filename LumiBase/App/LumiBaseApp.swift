@@ -12,7 +12,7 @@ struct LumiBaseApp: App {
     }
     
     private var appTitleWithVersion: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.12.0"
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.13.2"
         return "LumiBase v\(version)"
     }
     

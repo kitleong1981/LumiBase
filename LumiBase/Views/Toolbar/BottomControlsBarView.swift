@@ -124,23 +124,9 @@ public struct BottomControlsBarView: View {
                         .font(.system(size: 11))
                         .foregroundColor(LightroomTheme.accentYellow)
                 } else {
-                    let total = appState.allAssets.count
-                    let filtered = appState.displayedAssets.count
-                    let selected = appState.selectedAssetIDs.count
-                    
-                    if selected > 1 {
-                        Text("\(selected) of \(filtered) selected")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(LightroomTheme.accentYellow)
-                    } else if filtered < total {
-                        Text("\(filtered) of \(total) photos (Filtered)")
-                            .font(.system(size: 11))
-                            .foregroundColor(LightroomTheme.textSecondary)
-                    } else {
-                        Text("\(total) photos")
-                            .font(.system(size: 11))
-                            .foregroundColor(LightroomTheme.textSecondary)
-                    }
+                    Text(appState.photoPositionLabel)
+                        .font(.system(size: 11))
+                        .foregroundColor(LightroomTheme.textSecondary)
                 }
             }
             

@@ -458,6 +458,24 @@ public final class AppState: ObservableObject {
         return sortAssets(filtered, by: sortOrder)
     }
     
+    /// Only scroll to the explicit active photo when it is still in the visible collection.
+    /// Do not substitute the first photo or another member of a multi-selection.
+    var gridScrollTargetID: String? {
+        guard let id = primarySelectedAssetID,
+              displayedAssets.contains(where: { $0.id == id }) else { return nil }
+        return id
+    }
+
+    /// One-based position of the active photo in the current filtered, sorted collection.
+    public var photoPositionLabel: String {
+        let assets = displayedAssets
+        guard let id = primarySelectedAssetID,
+              let index = assets.firstIndex(where: { $0.id == id }) else {
+            return "\(assets.count) photos"
+        }
+        return "\(index + 1) / \(assets.count) photos"
+    }
+
     public var primarySelectedAsset: PhotoAsset? {
         guard let id = primarySelectedAssetID else {
             guard var first = displayedAssets.first else { return nil }
