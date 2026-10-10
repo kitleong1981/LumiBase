@@ -313,6 +313,13 @@ enum AcceptedHighlightsKernel {
             float excess=max(mx-0.85,0.0);
             float mapped=0.85+0.149*excess/(excess+0.149);
             z *= mx>0.85 ? mapped/max(mx,1e-8) : 1.0;
+            // Lightcraft-inspired specular highlight roll-off desaturation:
+            // Prevents residual color casting (e.g. magenta/cyan tint) in blown highlights
+            float desatT = clamp((mx - 0.88) / 0.12, 0.0, 1.0);
+            if (desatT > 0.0) {
+                float desatY = dot(z, float3(0.2126, 0.7152, 0.0722));
+                z = mix(z, float3(desatY), desatT * desatT * 0.65);
+            }
 
             float y=clamp(dot(z,float3(0.2126,0.7152,0.0722)), 1e-5, 2.0);
             float by=clamp(dot(be,float3(0.2126,0.7152,0.0722)), 1e-5, 2.0);

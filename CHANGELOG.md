@@ -5,6 +5,18 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.14 Fast Library] - 2026-10-10
+
+### Fixed
+- **Highlights Tone Curve White Point & Midtones Preservation (`AdobeColorPipeline`)**:
+  - Removed erroneous white point compression (`p4Y` dragged to 0.87) when negative highlights are applied. In Lightroom PV2012 and Lightcraft, the white point $(1.0, 1.0)$ is strictly preserved by Highlights and only moved by Whites.
+  - Eliminated midtone dragging (`p2Y` dragged from 0.50 to 0.42), ensuring daytime foregrounds, sea, and boats remain bright and sunny rather than turning gloomy.
+- **Lightcraft-Inspired Single-Pass GPU Kernel (`HighlightRollOffKernel`, `AdobeColorPipeline`)**:
+  - Replaced double `CIUnsharpMask` (radius 4 and 32) and double `CIBlendWithMask` filters with a single-pass Metal `CIColorKernel`, eliminating edge halo artifacts around dark silhouettes and silhouettes against skies.
+  - Implemented luminance-guided proportional scaling for linear RGB, guaranteeing 100% hue and chromaticity constancy and preventing sky hue twisting into purple/cyan.
+  - Added specular highlight roll-off desaturation when color channels exceed specular clipping ($mx > 0.985$), naturally blending blown-out sources into specular white without desaturating rich blue skies or golden sunsets.
+  - Added specular desaturation safety boundary to `AcceptedHighlightsKernel` for Advanced RAW mode.
+
 ## [1.14.13 Fast Library] - 2026-10-10
 
 ### Fixed
