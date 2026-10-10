@@ -215,6 +215,14 @@ public struct MainLayoutView: View {
         } message: {
             Text(deleteAlertMessage)
         }
+        .alert("Could not move to Trash", isPresented: Binding(
+            get: { appState.deleteErrorMessage != nil },
+            set: { if !$0 { appState.deleteErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { appState.deleteErrorMessage = nil }
+        } message: {
+            Text(appState.deleteErrorMessage ?? "No files were permanently deleted.")
+        }
         .alert("XMP not saved", isPresented: Binding(
             get: { appState.xmpSaveError != nil },
             set: { if !$0 { appState.xmpSaveError = nil } }

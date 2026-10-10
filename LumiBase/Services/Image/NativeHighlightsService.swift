@@ -182,7 +182,7 @@ final class NativeHighlightsService: @unchecked Sendable {
         if let temp = xmp.temperature, temp > 0 { raw.neutralTemperature = Float(temp) }
         if xmp.tint != nil { raw.neutralTint = tint + Float(Double(temperature - defaultTemp) * 0.012) }
         raw.exposure = rawExposure
-        raw.baselineExposure = 0.30
+        // Both highlight endpoints retain the same native per-file BaselineExposure.
         raw.shadowBias = 0
         raw.boostShadowAmount = 0
         raw.boostAmount = 1

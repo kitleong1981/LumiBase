@@ -141,8 +141,8 @@ public final class RAWImageLoader: @unchecked Sendable {
                         baseTint = defaultTint
                     }
                     
-                    // Calibrated CIRAWFilter baseline settings to match Adobe Camera Raw 1:1
-                    rawFilter.baselineExposure = 0.30
+                    // Preserve the decoder's per-file BaselineExposure; 0.30 is not a relative EV offset.
+                    // Keep the existing shadow/boost policy unchanged.
                     rawFilter.shadowBias = 0.0
                     rawFilter.boostShadowAmount = 0.0
                     rawFilter.boostAmount = 1.0

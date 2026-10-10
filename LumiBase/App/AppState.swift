@@ -93,6 +93,7 @@ public final class AppState: ObservableObject {
     // Deletion State
     @Published public var showDeleteConfirmation: Bool = false
     @Published public var pendingDeleteAssets: [PhotoAsset] = []
+    @Published public var deleteErrorMessage: String?
     
     // Watcher & Keyboard Monitor
     private let directoryWatcher = DirectoryWatcher()
@@ -102,6 +103,9 @@ public final class AppState: ObservableObject {
     private var scopedFolderURL: URL?
     private var ownsScopedFolderAccess = false
     private var keyMonitor: Any?
+    private var photoFocusMonitor: Any?
+    var photoBrowserHasKeyboardFocus = false
+    let photoKeyboardSurfaces = NSHashTable<NSView>.weakObjects()
     private var previewSubscriptions = Set<AnyCancellable>()
     private var priorPreviewAssetIDs: [String] = []
     private var priorPreviewSelectionID: String?
@@ -183,7 +187,20 @@ public final class AppState: ObservableObject {
         }
     }
     
+    // Mouse focus ownership is scoped to the image/grid/filmstrip, not the inspector.
+    func updatePhotoKeyboardFocus(_ event: NSEvent) {
+        photoBrowserHasKeyboardFocus = photoKeyboardSurfaces.allObjects.contains { view in
+            guard let window = event.window, view.window === window,
+                  !view.isHiddenOrHasHiddenAncestor, window.attachedSheet == nil else { return false }
+            return view.bounds.contains(view.convert(event.locationInWindow, from: nil))
+        }
+    }
+
     private func setupKeyMonitor() {
+        photoFocusMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            self?.updatePhotoKeyboardFocus(event)
+            return event
+        }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
             if self.handleGlobalKeyEvent(event) {
@@ -200,7 +217,7 @@ public final class AppState: ObservableObject {
         if showDeleteConfirmation { return false }
         
         // Only ignore keyboard shortcuts if user is currently typing in an active text input field
-        if let responder = NSApplication.shared.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
+        if let responder = (event.window ?? NSApplication.shared.keyWindow)?.firstResponder, (responder is NSTextView || responder is NSTextField) {
             // If user presses Escape while in a text input field, dismiss focus and consume event
             if keyCode == 53 { // Escape
                 DispatchQueue.main.async {
@@ -219,6 +236,16 @@ public final class AppState: ObservableObject {
             return false
         }
         
+        // Plain macOS Backspace uses the same confirmation as Command+Delete.
+        if keyCode == 51 && !flags.contains(.command) && !flags.contains(.control)
+            && !flags.contains(.option) && !flags.contains(.shift) && photoBrowserHasKeyboardFocus {
+            let window = event.window ?? NSApplication.shared.keyWindow
+            guard window?.attachedSheet == nil, !showSyncDialog, !showCopySettingsDialog,
+                  !(window?.firstResponder is NSControl) else { return false }
+            requestDeleteSelectedPhotos()
+            return true
+        }
+
         // macOS Fn+Delete emits forward delete (117), usually with .function.
         // Keep it out of editable text and do not accept other modifier chords.
         if keyCode == 117 && !flags.contains(.command) && !flags.contains(.control)
@@ -559,6 +586,7 @@ public final class AppState: ObservableObject {
     /// - Toggle (Control/Command + click): toggle individual asset in selection without resetting others
     /// - Range (Shift + click): select contiguous range of assets between anchor and clicked asset
     public func selectAsset(_ asset: PhotoAsset, isToggle: Bool = false, isRange: Bool = false) {
+        photoBrowserHasKeyboardFocus = true
         // Resign any active text input focus (like search bar) when user clicks to select photos
         if let responder = NSApplication.shared.keyWindow?.firstResponder, (responder is NSTextView || responder is NSTextField) {
             DispatchQueue.main.async {
@@ -1265,45 +1293,57 @@ public final class AppState: ObservableObject {
     }
     
     /// Confirms and executes moving pending photo(s) and any associated XMP sidecar(s) to macOS Trash
-    public func confirmDeletePendingPhotos() {
+    public func confirmDeletePendingPhotos(fileManager: FileManager = .default) {
         guard !pendingDeleteAssets.isEmpty else { return }
         
         let deletedAssets = pendingDeleteAssets
         let currentList = displayedAssets
-        let deletedIDs = Set(deletedAssets.map { $0.id })
+        let pendingIDs = Set(deletedAssets.map { $0.id })
+        var deletedIDs = Set<String>()
+        var failures: [String] = []
+        deleteErrorMessage = nil
         
         // Calculate the next candidate asset to select after deletion
         var nextAssetToSelect: PhotoAsset?
         if let primaryID = primarySelectedAssetID,
            let currentIndex = currentList.firstIndex(where: { $0.id == primaryID }) {
             // Try subsequent items first
-            if let nextItem = currentList[(currentIndex + 1)...].first(where: { !deletedIDs.contains($0.id) }) {
+            if let nextItem = currentList[(currentIndex + 1)...].first(where: { !pendingIDs.contains($0.id) }) {
                 nextAssetToSelect = nextItem
-            } else if let prevItem = currentList[..<currentIndex].reversed().first(where: { !deletedIDs.contains($0.id) }) {
+            } else if let prevItem = currentList[..<currentIndex].reversed().first(where: { !pendingIDs.contains($0.id) }) {
                 nextAssetToSelect = prevItem
             }
         }
         
-        let fileManager = FileManager.default
-        
         for asset in deletedAssets {
+            var succeeded = true
             for fileURL in asset.allAssociatedURLs {
                 if fileManager.fileExists(atPath: fileURL.path) {
                     do {
                         try fileManager.trashItem(at: fileURL, resultingItemURL: nil)
                     } catch {
-                        try? fileManager.removeItem(at: fileURL)
+                        succeeded = false
+                        failures.append("\(fileURL.lastPathComponent): \(error.localizedDescription)")
+                        // Stop this group; never permanently delete after a Trash failure.
+                        break
                     }
                 }
             }
+            if succeeded { deletedIDs.insert(asset.id) }
+        }
+        if !failures.isEmpty {
+            deleteErrorMessage = "Could not move all files to Trash. Failed assets remain in the browser. Some associated files may already be in Trash; restore them in Finder before retrying.\n" + failures.joined(separator: "\n")
         }
         
         // 3. Update memory assets list
         self.allAssets.removeAll { deletedIDs.contains($0.id) }
         self.selectedAssetIDs.subtract(deletedIDs)
         
-        // 4. Update selection
-        if let next = nextAssetToSelect {
+        // Keep a failed primary asset selected; advance only after success.
+        if let primary = primarySelectedAssetID, !deletedIDs.contains(primary),
+           allAssets.contains(where: { $0.id == primary }) {
+            // Existing selection is still valid.
+        } else if let next = nextAssetToSelect, !deletedIDs.contains(next.id) {
             self.primarySelectedAssetID = next.id
             self.selectionAnchorAssetID = next.id
             if self.selectedAssetIDs.isEmpty {

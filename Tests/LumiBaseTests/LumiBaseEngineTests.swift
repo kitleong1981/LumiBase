@@ -324,6 +324,41 @@ final class LumiBaseEngineTests: XCTestCase {
         XCTAssertEqual(appState.primarySelectedAssetID, asset3.id)
     }
     
+    @MainActor
+    func testTrashFailureRetainsFixtureAndSelectionWithoutPermanentDeletion() throws {
+        class FailingTrashManager: FileManager, @unchecked Sendable {
+            var permanentRemovalCalls = 0
+            override func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+            }
+            override func removeItem(at URL: URL) throws {
+                permanentRemovalCalls += 1
+                try super.removeItem(at: URL)
+            }
+        }
+        let directory = inspectionTestScratchURL(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("fixture.ARW")
+        try "fixture-only".write(to: url, atomically: true, encoding: .utf8)
+        let asset = PhotoAsset(fileURL: url)
+        let state = AppState()
+        state.allAssets = [asset]
+        state.selectAsset(asset)
+        state.requestDeleteSelectedPhotos()
+        let manager = FailingTrashManager()
+        state.confirmDeletePendingPhotos(fileManager: manager)
+        XCTAssertNotNil(state.deleteErrorMessage)
+        XCTAssertTrue(state.deleteErrorMessage?.contains("fixture.ARW") == true)
+        XCTAssertEqual(manager.permanentRemovalCalls, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertEqual(state.allAssets.map(\.id), [asset.id])
+        XCTAssertEqual(state.primarySelectedAssetID, asset.id)
+        XCTAssertEqual(state.selectedAssetIDs, [asset.id])
+        XCTAssertFalse(state.showDeleteConfirmation)
+        XCTAssertTrue(state.pendingDeleteAssets.isEmpty)
+    }
+
     func testRawPlusJpgGroupingAndBadges() {
         let rawURL = URL(fileURLWithPath: "/photos/DSC0001.ARW")
         let jpgURL = URL(fileURLWithPath: "/photos/DSC0001.JPG")

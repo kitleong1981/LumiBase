@@ -60,6 +60,7 @@ public struct FilmstripView: View {
                 .background(FilmstripWheelBridge())
             }
             .frame(height: 85)
+            .background(PhotoKeyboardFocusSurface(appState: appState))
             .background(LightroomTheme.headerBackground)
             .onChange(of: appState.primarySelectedAssetID) { _, newID in
                 if let newID = newID {
