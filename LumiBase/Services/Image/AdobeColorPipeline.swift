@@ -290,7 +290,7 @@ public final class AdobeColorPipeline: Sendable {
 
 
 /// Baseline dark/mid-tone correction measured against Lightroom (all-zero) and Sony JPEG references:
-/// lifts L* by ~2 and scales chroma by ~0.8 in the L* 1..35 band. Experimental; see docs/baseline-tone-a.md.
+/// lifts L* by ~3 and scales chroma by ~0.8 in the L* 1..35 band, and by ~0.88 for L* > 45. Experimental; see docs/baseline-tone-a.md.
 public enum BaselineToneKernel {
     static var isEnabled: Bool {
         if let e = ProcessInfo.processInfo.environment["LB_BASELINE_A"] { return e != "0" }
@@ -313,7 +313,7 @@ public enum BaselineToneKernel {
         }
         float labF(float t) { return t > 0.008856 ? pow(t, 1.0/3.0) : 7.787 * t + 16.0/116.0; }
         float labFInv(float t) { float t3 = t*t*t; return t3 > 0.008856 ? t3 : (t - 16.0/116.0) / 7.787; }
-        kernel vec4 baselineTone(__sample s, float lift, float chroma) {
+        kernel vec4 baselineTone(__sample s, float lift, float chroma, float brightChroma) {
             vec3 lin = s.rgb;
             vec3 enc = srgbEnc(clamp(lin, 0.0, 1.0));
             vec3 l = clamp(lin, 0.0, 1.0);
@@ -323,9 +323,10 @@ public enum BaselineToneKernel {
             float fx = labF(X), fy = labF(Y), fz = labF(Z);
             float L = 116.0 * fy - 16.0;
             float w = smoothstep(1.0, 6.0, L) * (1.0 - smoothstep(18.0, 35.0, L));
-            if (w <= 0.0) { return s; }
-            float a = 500.0 * (fx - fy) * (1.0 - (1.0 - chroma) * w);
-            float b = 200.0 * (fy - fz) * (1.0 - (1.0 - chroma) * w);
+            float wb = smoothstep(45.0, 75.0, L);
+            if (w <= 0.0 && wb <= 0.0) { return s; }
+            float a = 500.0 * (fx - fy) * (1.0 - (1.0 - chroma) * w) * (1.0 - (1.0 - brightChroma) * wb);
+            float b = 200.0 * (fy - fz) * (1.0 - (1.0 - chroma) * w) * (1.0 - (1.0 - brightChroma) * wb);
             float L2 = L + lift * w;
             float fy2 = (L2 + 16.0) / 116.0;
             float fx2 = fy2 + a / 500.0;
@@ -340,7 +341,7 @@ public enum BaselineToneKernel {
     """)
     static func apply(_ image: CIImage) -> CIImage {
         guard let kernel, !image.extent.isInfinite else { return image }
-        let lift = Float(tune("LB_BA_LIFT", 2.0)), chroma = Float(tune("LB_BA_CHROMA", 0.8))
-        return kernel.apply(extent: image.extent, arguments: [image, lift, chroma]) ?? image
+        let lift = Float(tune("LB_BA_LIFT", 3.0)), chroma = Float(tune("LB_BA_CHROMA", 0.8)), bright = Float(tune("LB_BA_BRIGHT", 0.88))
+        return kernel.apply(extent: image.extent, arguments: [image, lift, chroma, bright]) ?? image
     }
 }
