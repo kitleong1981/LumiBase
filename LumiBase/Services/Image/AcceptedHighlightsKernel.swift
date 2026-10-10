@@ -304,21 +304,29 @@ enum AcceptedHighlightsKernel {
             float d = clamp(correction.r, -3.0, 3.0);
             float3 z = te * exp2(d);
             float3 l = lab(z);
-            // Highlight warm chroma recovery: as overexposed highlights are recovered (d > 0.0),
-            // restore and enrich natural warm sunset/cloud saturation instead of washing out into gray.
-            float highlightChromaBoost = 1.0 + clamp(d * 0.35, 0.0, 0.45) * sat(l.x, 0.40, 0.90) * sat(l.z, 0.005, 0.08);
-            float3 enrichedLab = float3(l.x, l.yz * highlightChromaBoost);
+            // Raw chroma from recovered highlights is preserved without artificial yellow tinting.
+            float3 enrichedLab = l;
+
+            // GPU Chroma Cap (彩度上限):
+            // Lightcraft-inspired perceptual chroma ceiling in Oklab space.
+            // As lightness L approaches 1.0, maximum permissible chroma smoothly tapers towards 0
+            // following real film/camera highlight bleaching, preventing unnatural yellow/orange
+            // or color artifacts in aggressive highlight recovery while preserving hue constancy.
+            float curChroma = length(enrichedLab.yz);
+            float maxChroma = clamp(pow(max(1.0 - enrichedLab.x, 0.0), 1.5) * 0.35, 0.0, 0.20);
+            if (curChroma > maxChroma && curChroma > 1e-6) {
+                enrichedLab.yz *= (maxChroma / curChroma);
+            }
+
             z = clamp(invlab(enrichedLab), float3(0.0), float3(4.0));
-            float mx=max(z.r,max(z.g,z.b));
-            float excess=max(mx-0.85,0.0);
-            float mapped=0.85+0.149*excess/(excess+0.149);
-            z *= mx>0.85 ? mapped/max(mx,1e-8) : 1.0;
-            // Lightcraft-inspired specular highlight roll-off desaturation:
-            // Prevents residual color casting (e.g. magenta/cyan tint) in blown highlights
-            float desatT = clamp((mx - 0.88) / 0.12, 0.0, 1.0);
-            if (desatT > 0.0) {
-                float desatY = dot(z, float3(0.2126, 0.7152, 0.0722));
-                z = mix(z, float3(desatY), desatT * desatT * 0.65);
+
+            // Lightcraft-inspired Gamut Mapping / Chroma Roll-off:
+            // Desaturates towards luminance if peak channel exceeds display ceiling (1.0)
+            float maxChan = max(z.r, max(z.g, z.b));
+            if (maxChan > 1.0) {
+                float zy = clamp(dot(z, float3(0.2126, 0.7152, 0.0722)), 0.0, 1.0);
+                float t = clamp((1.0 - zy) / max(maxChan - zy, 1e-6), 0.0, 1.0);
+                z = zy + (z - zy) * t;
             }
 
             float y=clamp(dot(z,float3(0.2126,0.7152,0.0722)), 1e-5, 2.0);
@@ -344,3 +352,114 @@ enum AcceptedHighlightsKernel {
         }
     """#)
 }
+
+/// GPU-accelerated, Lightcraft-grade highlight recovery pipeline.
+/// Reconstructs unclipped scene-linear dynamic range from multi-exposure RAW endpoints,
+/// performs edge-preserving base layer separation via fast guided filtering on log-luminance,
+/// attenuates large-scale highlight glare while preserving 100% of micro-contrast ripples/god rays,
+/// and applies an extended filmic Reinhard tonemap with specular highlight roll-off.
+public enum LightcraftHighlightsKernel {
+    private static let blendKernel = CIColorKernel(source: """
+        kernel vec4 hdrBlend(__sample ev0, __sample ev2) {
+            float y0 = dot(ev0.rgb, vec3(0.2126, 0.7152, 0.0722));
+            float t = smoothstep(0.65, 0.95, y0);
+            vec3 linearHDR = mix(ev0.rgb, ev2.rgb * 4.0, t);
+            return vec4(linearHDR, 1.0);
+        }
+    """)
+    
+    private static let packKernel = CIColorKernel(source: """
+        kernel vec4 lhPack(__sample s) {
+            float y = max(dot(max(s.rgb, vec3(0.0)), vec3(0.2126, 0.7152, 0.0722)), 1e-6);
+            float l = log2(y / 0.18);
+            return vec4(l, l * l, 0.0, 1.0);
+        }
+    """)
+    
+    private static let coeffsKernel = CIColorKernel(source: """
+        kernel vec4 lhCoeffs(__sample m, float eps) {
+            float mi = m.r;
+            float v = max(m.g - mi * mi, 0.0);
+            float a = v / (v + eps);
+            return vec4(a, mi - a * mi, 0.0, 1.0);
+        }
+    """)
+    
+    private static let applyKernel = CIColorKernel(source: """
+        kernel vec4 lhApply(__sample s, __sample ab, float hl) {
+            vec3 c = max(s.rgb, vec3(0.0));
+            float y = max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-6);
+            float l = log2(y / 0.18);
+            float base = ab.r * l + ab.g;
+            
+            // Lightcraft local highlights on edge-preserving base:
+            // Attenuates large-scale illumination while leaving micro-contrast (c / 2^base) 100% intact
+            float wh = smoothstep(0.5, 3.2, base);
+            float delta = hl * 1.7 * wh;
+            vec3 c_toned = c * exp2(delta);
+            
+            // Lightcraft extended Reinhard tonemap with white point wl = 0.18 * 2^2.9 = 1.343
+            float yt = max(dot(c_toned, vec3(0.2126, 0.7152, 0.0722)), 1e-6);
+            float wl = 0.18 * pow(2.0, 2.9);
+            float o = yt * (1.0 + yt / (wl * wl)) / (1.0 + yt);
+            o = min(o, 1.0);
+            vec3 d = c_toned * (o / yt);
+            
+            // Specular desaturation & gamut map (real camera highlight bleaching):
+            float mx = max(d.r, max(d.g, d.b));
+            if (mx > 1.0) {
+                float t = clamp((mx - 1.0) / max(mx - o, 1e-6), 0.0, 1.0);
+                d = mix(d, vec3(o), t);
+            }
+            return vec4(clamp(d, 0.0, 1.0), 1.0);
+        }
+    """)
+    
+    public struct Field: Sendable {
+        public let hdrImage: CIImage
+        public let meanABImage: CIImage
+        public let extent: CGRect
+        
+        public init(hdrImage: CIImage, meanABImage: CIImage, extent: CGRect) {
+            self.hdrImage = hdrImage
+            self.meanABImage = meanABImage
+            self.extent = extent
+        }
+    }
+    
+    public static func prepare(ev0: CIImage, ev2: CIImage) -> Field? {
+        guard let blendKernel, let packKernel, let coeffsKernel else { return nil }
+        let extent = ev0.extent
+        guard !extent.isInfinite, !extent.isEmpty,
+              let hdr = blendKernel.apply(extent: extent, arguments: [ev0, ev2]) else { return nil }
+        
+        let longEdge = max(extent.width, extent.height)
+        let scale = min(1.0, 1024.0 / longEdge)
+        let sigma = max(1.0, 0.015 * Double(longEdge * scale))
+        
+        guard let logLum = packKernel.apply(extent: extent, arguments: [hdr]) else { return nil }
+        let small = logLum.applyingFilter("CILanczosScaleTransform", parameters: [
+            kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1.0
+        ])
+        let smallExtent = small.extent
+        
+        func blur(_ img: CIImage) -> CIImage {
+            img.clampedToExtent()
+               .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: sigma])
+               .cropped(to: smallExtent)
+        }
+        
+        guard let ab = coeffsKernel.apply(extent: smallExtent, arguments: [blur(small), Float(0.35)]) else { return nil }
+        let meanAB = blur(ab).clampedToExtent()
+            .transformed(by: CGAffineTransform(scaleX: 1.0 / scale, y: 1.0 / scale))
+            .cropped(to: extent)
+            
+        return Field(hdrImage: hdr, meanABImage: meanAB, extent: extent)
+    }
+    
+    public static func apply(field: Field, hlFactor: Float) -> CIImage? {
+        guard let applyKernel else { return nil }
+        return applyKernel.apply(extent: field.extent, arguments: [field.hdrImage, field.meanABImage, hlFactor])
+    }
+}
+

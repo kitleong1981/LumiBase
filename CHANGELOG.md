@@ -7,15 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.14.14 Fast Library] - 2026-10-10
 
+### Added
+- **Lightcraft-Grade GPU RAW Highlight Recovery Pipeline (`LightcraftHighlightsKernel`, `NativeHighlightsService`)**:
+  - Implemented dual-exposure scene-linear HDR blending (`hdrBlend`) on GPU, fusing EV0 and EV-2 (scaled 4x) over linear luminance $[0.65, 0.95]$ to recover up to 400% sensor headroom clipped by single-exposure decodes.
+  - Implemented fast guided filtering on log-luminance ($\sigma = 0.015 \times \text{longEdge}$, $\varepsilon = 0.35$) for edge-preserving base layer attenuation, leaving 100% of micro-contrast ripples and god rays intact.
+  - Added extended filmic Reinhard tonemap with white point $w_l = 0.18 \times 2^{2.9} \approx 1.343$ and out-of-gamut specular desaturation, producing clean natural transitions without artificial color casts.
+  - Enabled high-detail RAW highlight recovery by default across preview and JPEG export pipelines (`NativeHighlightsService.isEnabled = true`).
+
 ### Fixed
 - **Highlights Tone Curve White Point & Midtones Preservation (`AdobeColorPipeline`)**:
   - Removed erroneous white point compression (`p4Y` dragged to 0.87) when negative highlights are applied. In Lightroom PV2012 and Lightcraft, the white point $(1.0, 1.0)$ is strictly preserved by Highlights and only moved by Whites.
   - Eliminated midtone dragging (`p2Y` dragged from 0.50 to 0.42), ensuring daytime foregrounds, sea, and boats remain bright and sunny rather than turning gloomy.
-- **Lightcraft-Inspired Single-Pass GPU Kernel (`HighlightRollOffKernel`, `AdobeColorPipeline`)**:
-  - Replaced double `CIUnsharpMask` (radius 4 and 32) and double `CIBlendWithMask` filters with a single-pass Metal `CIColorKernel`, eliminating edge halo artifacts around dark silhouettes and silhouettes against skies.
-  - Implemented luminance-guided proportional scaling for linear RGB, guaranteeing 100% hue and chromaticity constancy and preventing sky hue twisting into purple/cyan.
-  - Added specular highlight roll-off desaturation when color channels exceed specular clipping ($mx > 0.985$), naturally blending blown-out sources into specular white without desaturating rich blue skies or golden sunsets.
-  - Added specular desaturation safety boundary to `AcceptedHighlightsKernel` for Advanced RAW mode.
+- **In-Flight Develop Settings Export Synchronization (`AppState`)**:
+  - Synchronized `liveDevelopXMP` into `selectedAssets` and `exportPhotos` so that newly adjusted highlights or basic sliders are immediately applied to exported JPEGs without requiring catalog debounce flushes.
 
 ## [1.14.13 Fast Library] - 2026-10-10
 

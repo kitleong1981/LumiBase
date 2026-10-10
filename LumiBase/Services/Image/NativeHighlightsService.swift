@@ -21,7 +21,7 @@ public struct HighlightsSourceRecipe: Sendable, Equatable {
 /// serial, and never holds the short state lock used by folder/cache invalidation.
 final class NativeHighlightsService: @unchecked Sendable {
     static let shared = NativeHighlightsService()
-    public static var isEnabled: Bool = (UserDefaults.standard.object(forKey: "isNativeHighlightsEnabled") as? Bool) ?? false
+    public static var isEnabled: Bool = (UserDefaults.standard.object(forKey: "isNativeHighlightsEnabled") as? Bool) ?? true
     enum NeutralDomain: Equatable { case preview, nativeRAWExport }
     struct Key: Equatable {
         let source: HighlightsSourceRecipe
@@ -44,11 +44,14 @@ final class NativeHighlightsService: @unchecked Sendable {
     }
     private struct Entry {
         let key: Key
-        let accepted: CIImage
-        let zero: CIImage
-        func image(strength: Float) -> CIImage? {
-            if strength == 1 { return accepted }
-            return NativeHighlightsService.strengthKernel?.apply(extent: accepted.extent, arguments: [zero, accepted, strength])
+        let field: LightcraftHighlightsKernel.Field
+        let baseHolder: BaseImageHolder
+        let cameraModel: String?
+        let xmp: XMPMetadata
+        
+        func image(strength: Float, hlFactor: Float) -> CIImage? {
+            guard let recovered = LightcraftHighlightsKernel.apply(field: field, hlFactor: hlFactor) else { return nil }
+            return AdobeColorPipeline.shared.process(image: recovered, cameraModel: cameraModel, xmp: xmp, baseHolder: baseHolder)
         }
     }
     private let stateLock = NSLock()
@@ -101,13 +104,14 @@ final class NativeHighlightsService: @unchecked Sendable {
         anchorSettings.highlights2012 = -80
         let key = Key(source: source, xmp: anchorSettings, cameraModel: cameraModel, neutralDomain: neutralDomain)
         let amount = Self.strength(xmp.highlights2012 ?? 0)
+        let hlFactor = Float(xmp.highlights2012 ?? 0) / 100.0
         preparationLock.lock(); defer { preparationLock.unlock() }
         guard isCurrent(), !Task.isCancelled, source.isCurrent else { return nil }
         stateLock.lock()
         if let ready = entry, ready.key == key {
             hits += 1
             stateLock.unlock()
-            return ready.image(strength: amount)
+            return ready.image(strength: amount, hlFactor: hlFactor)
         }
         // Evict the previous source/settings graph before preparing a replacement;
         // completed UI bitmaps have their own existing ROI/Fit ownership.
@@ -115,33 +119,15 @@ final class NativeHighlightsService: @unchecked Sendable {
         let ticket = generation
         stateLock.unlock()
         let start = ProcessInfo.processInfo.systemUptime
-        let prepared: Entry? = autoreleasepool {
-            // Preserve the viewer's existing EV-delta domain: its base RAW is EV0,
-            // with the XMP exposure applied by AdobeColorPipeline. The accepted dark
-            // endpoint is an independent RAW EV-2 graph, not an EDR/linear divide.
-            // Keeping both metadata EVs at zero prevents cancelling that attenuation
-            // and makes the negative branch converge to the unchanged H0 preview.
+        let prepared: Entry? = autoreleasepool { () -> Entry? in
+            // Reconstruct unclipped linear highlights by blending baseline EV0 and underexposed RAW EV-2.
             guard let baselineHolder = endpoint(source: source, xmp: xmp, rawExposure: 0, metadataExposure: 0, generation: ticket),
                   let targetHolder = endpoint(source: source, xmp: xmp, rawExposure: -2, metadataExposure: 0, generation: ticket),
                   baselineHolder.fullExtent.width * baselineHolder.fullExtent.height <= 128_000_000,
                   isCurrent(), !Task.isCancelled else { return nil }
-            var anchor = xmp
-            anchor.highlights2012 = -80
-            let baseline = AdobeColorPipeline.shared.process(image: baselineHolder.full, cameraModel: cameraModel, xmp: anchor, baseHolder: baselineHolder)
-            let target = AdobeColorPipeline.shared.process(image: targetHolder.full, cameraModel: cameraModel, xmp: anchor, baseHolder: targetHolder)
-            guard let field = try? AcceptedHighlightsKernel.prepare(baseline: baseline, target: target, context: renderContext),
+            guard let field = LightcraftHighlightsKernel.prepare(ev0: baselineHolder.full, ev2: targetHolder.full),
                   isCurrent(), !Task.isCancelled else { return nil }
-            let accepted = AcceptedHighlightsKernel.apply(baseline: baseline, target: target, field: field)
-            var neutral = xmp
-            neutral.highlights2012 = 0
-            let zeroHolder: BaseImageHolder
-            if neutralDomain == .nativeRAWExport, let ev = xmp.exposure2012, ev != 0 {
-                guard let decoded = endpoint(source: source, xmp: neutral, rawExposure: Float(ev), metadataExposure: Float(ev), generation: ticket) else { return nil }
-                zeroHolder = decoded
-            } else { zeroHolder = baselineHolder }
-            let zero = AdobeColorPipeline.shared.process(image: zeroHolder.full, cameraModel: cameraModel, xmp: neutral, baseHolder: zeroHolder)
-            // Linear display-light interpolation/extrapolation, clamped to the display gamut.
-            return Entry(key: key, accepted: accepted, zero: zero)
+            return Entry(key: key, field: field, baseHolder: baselineHolder, cameraModel: cameraModel, xmp: xmp)
         }
         guard let prepared, isCurrent(), !Task.isCancelled, source.isCurrent else { return nil }
         stateLock.lock(); defer { stateLock.unlock() }
@@ -149,7 +135,7 @@ final class NativeHighlightsService: @unchecked Sendable {
         preparationMilliseconds = (ProcessInfo.processInfo.systemUptime - start) * 1000
         preparations += 1
         entry = prepared
-        return prepared.image(strength: amount)
+        return prepared.image(strength: amount, hlFactor: hlFactor)
     }
 
     private static let strengthKernel = CIColorKernel(source: """

@@ -125,6 +125,9 @@ public final class AdobeColorPipeline: Sendable {
         let isRawImage = baseHolder?.isRaw ?? false
         let isAdvancedRaw = isRawImage && NativeHighlightsService.isAdvancedEnabled(for: xmp)
         
+        // 5a. Tone curve highlight recovery
+        // (LocalHighlightsOperator bypassed to restore natural cloud 3D volume and prevent muddy flattening)
+        
         let hasToneEdits = (hl != 0) || (sh != 0) || (whites != 0) || (blacks != 0) || (dehaze != 0)
         if hasToneEdits {
             // For RAW files with Advanced RAW Highlight Recovery enabled, preserve calibrated weights for AcceptedHighlightsKernel parity;
@@ -136,8 +139,8 @@ public final class AdobeColorPipeline: Sendable {
             
             if isAdvancedRaw {
                 hlP1 = 0.0
-                hlP2 = hlFactor * 0.08
-                hlP3 = hlFactor * 0.08
+                hlP2 = 0.0
+                hlP3 = 0.0
                 hlP4 = 0.0
             } else {
                 if hlFactor < 0 {
@@ -159,10 +162,8 @@ public final class AdobeColorPipeline: Sendable {
             let p0Y = max(0.0, min(0.04, 0.0 + (bFactor * 0.01)))
             let p1Y = max(0.12, min(0.35, 0.24 + hlP1 + (shFactor * 0.06) + (bFactor * 0.20)))
             let p2Y = max(0.40, min(0.65, 0.50 + hlP2 + (shFactor * 0.03)))
-            let p3Y = isAdvancedRaw
-                ? max(0.60, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
-                : max(0.55, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
-            let p4Y = max(0.92, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
+            let p3Y = max(0.60, min(0.90, 0.75 + hlP3 + (wFactor * 0.06)))
+            let p4Y = max(0.95, min(1.0, 1.0 + (wFactor * 0.03) + hlP4))
             
             current = current.applyingFilter("CIToneCurve", parameters: [
                 "inputPoint0": CIVector(x: 0.0, y: p0Y),
@@ -172,13 +173,35 @@ public final class AdobeColorPipeline: Sendable {
                 "inputPoint4": CIVector(x: 1.0, y: p4Y)
             ])
             
-            // 5b. Lightcraft-inspired Highlight Roll-off & Specular Desaturation
-            // Replaces halo-inducing unsharp masks with a continuous, edge-preserving Hermite
-            // shoulder curve that preserves cloud 3D volume, hue constancy, and natural specular desaturation.
-            let hasHLAdjustment = (hl != 0)
-            let hasExposureBoost = (xmp.exposure2012 ?? 0) > 0 || (xmp.whites2012 ?? 0) > 0
-            if !isAdvancedRaw && (hasHLAdjustment || hasExposureBoost) {
-                current = HighlightRollOffKernel.shared.apply(image: current, hlFactor: Float(hlFactor))
+            // 5b. Highlight Micro-Contrast Compensation (PV2012 Cloud Volume & Edge Contrast)
+            // When highlights are pulled down (hlFactor < 0), inject adaptive micro-contrast in the
+            // mid-to-high luminance zone, masked away from shadows/silhouettes to restore natural 3D depth.
+            if !isAdvancedRaw && hlFactor < 0 {
+                let maskLuma = current.applyingFilter("CIColorMatrix", parameters: [
+                    "inputRVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0.0),
+                    "inputGVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0.0),
+                    "inputBVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0.0),
+                    "inputAVector": CIVector(x: 0.2126, y: 0.7152, z: 0.0722, w: 0.0),
+                    "inputBiasVector": CIVector(x: 0.0, y: 0.0, z: 0.0, w: 0.0)
+                ]).applyingFilter("CIToneCurve", parameters: [
+                    "inputPoint0": CIVector(x: 0.0, y: 0.0),
+                    "inputPoint1": CIVector(x: 0.15, y: 0.0),
+                    "inputPoint2": CIVector(x: 0.30, y: 0.55),
+                    "inputPoint3": CIVector(x: 0.55, y: 1.0),
+                    "inputPoint4": CIVector(x: 1.0, y: 1.0)
+                ])
+                
+                let microContrastIntensity = min(0.85, abs(hlFactor) * 0.75)
+                let enhanced = current.applyingFilter("CIUnsharpMask", parameters: [
+                    kCIInputRadiusKey: 32.0,
+                    kCIInputIntensityKey: microContrastIntensity
+                ])
+                
+                current = current.applyingFilter("CIBlendWithMask", parameters: [
+                    kCIInputImageKey: enhanced,
+                    kCIInputBackgroundImageKey: current,
+                    kCIInputMaskImageKey: maskLuma
+                ])
             }
         }
 
@@ -262,59 +285,3 @@ public final class AdobeColorPipeline: Sendable {
     }
 }
 
-/// Lightcraft-inspired highlight roll-off and specular desaturation kernel.
-/// Replaces halo-prone unsharp masks with continuous, edge-preserving Hermite shoulder scaling
-/// and specular highlight desaturation to prevent harsh channel clipping artifacts.
-public final class HighlightRollOffKernel: @unchecked Sendable {
-    public static let shared = HighlightRollOffKernel()
-    
-    private let kernel: CIColorKernel?
-    
-    public init() {
-        self.kernel = CIColorKernel(source: """
-            kernel vec4 highlightRollOff(__sample src, float hlFactor) {
-                vec3 c = clamp(src.rgb, 0.0, 4.0);
-                float y = dot(c, vec3(0.2126, 0.7152, 0.0722));
-                
-                // 1. Proportional highlight attenuation / recovery (Hue-Preserving)
-                // In Lightcraft, local highlights are scaled proportionally on RGB based on
-                // a smooth Hermite shoulder curve, preventing the color/hue distortions of 1D curves.
-                // Midtones (y <= 0.55) are preserved; highlight zone (y > 0.55) rolls off smoothly.
-                float gain = 1.0;
-                if (hlFactor < 0.0) {
-                    // Negative highlights: Smooth Hermite shoulder compression
-                    // Targets the 0.60~0.92 highlight band while preserving specular highlights (1.0)
-                    float w = clamp((y - 0.55) / (0.95 - 0.55), 0.0, 1.0);
-                    float smoothW = w * w * (3.0 - 2.0 * w);
-                    // Taper down near 1.0 so specular white reflections and sun stay brilliant
-                    float specularTaper = 1.0 - smoothstep(0.88, 1.0, y) * 0.55;
-                    gain = 1.0 + hlFactor * 0.25 * smoothW * specularTaper;
-                } else if (hlFactor > 0.0) {
-                    // Positive highlights: smooth specular roll-off
-                    float w = clamp((y - 0.55) / (1.0 - 0.55), 0.0, 1.0);
-                    float smoothW = w * w * (3.0 - 2.0 * w);
-                    gain = 1.0 + hlFactor * 0.18 * smoothW;
-                }
-                vec3 adjusted = c * max(0.0, gain);
-                
-                // 2. Lightcraft-inspired Specular Highlight Desaturation
-                // In Lightcraft (finish.wgsl: if (mx > 1.0)), desaturation only applies to
-                // genuinely clipping channels. Saturated blue sky (mx = 0.85~0.95) is NEVER desaturated!
-                float mx = max(adjusted.r, max(adjusted.g, adjusted.b));
-                if (mx > 0.985) {
-                    float t = clamp((mx - 0.985) / 0.015, 0.0, 1.0);
-                    float adjY = dot(adjusted, vec3(0.2126, 0.7152, 0.0722));
-                    adjusted = mix(adjusted, vec3(adjY), t * 0.75);
-                }
-                
-                return vec4(clamp(adjusted, 0.0, 1.0), src.a);
-            }
-        """)
-    }
-    
-    public func apply(image: CIImage, hlFactor: Float, enableSpecularRollOff: Bool = true) -> CIImage {
-        guard let kernel = kernel else { return image }
-        if hlFactor == 0 && !enableSpecularRollOff { return image }
-        return kernel.apply(extent: image.extent, arguments: [image, hlFactor]) ?? image
-    }
-}

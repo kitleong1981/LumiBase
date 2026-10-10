@@ -179,7 +179,7 @@ public final class AppState: ObservableObject {
     
     // Native Highlights (Accepted-B) toggle - default true
     @Published public private(set) var highlightsRenderRevision: UInt64 = 0
-    @Published public var isNativeHighlightsEnabled: Bool = (UserDefaults.standard.object(forKey: "isNativeHighlightsEnabled") as? Bool) ?? false {
+    @Published public var isNativeHighlightsEnabled: Bool = (UserDefaults.standard.object(forKey: "isNativeHighlightsEnabled") as? Bool) ?? true {
         didSet {
             guard oldValue != isNativeHighlightsEnabled else { return }
             UserDefaults.standard.set(isNativeHighlightsEnabled, forKey: "isNativeHighlightsEnabled")
@@ -634,7 +634,14 @@ public final class AppState: ObservableObject {
     
     public var selectedAssets: [PhotoAsset] {
         if let cached = selectedAssetsCache { return cached }
-        let result = displayedAssets.filter { selectedAssetIDs.contains($0.id) }
+        let result = displayedAssets.filter { selectedAssetIDs.contains($0.id) }.map { asset -> PhotoAsset in
+            if liveDevelopAssetID == asset.id, let live = liveDevelopXMP {
+                var a = asset
+                a.xmp = live
+                return a
+            }
+            return asset
+        }
         selectedAssetsCache = result
         return result
     }
@@ -1405,20 +1412,29 @@ public final class AppState: ObservableObject {
     public func exportPhotos(assets: [PhotoAsset]) {
         guard !assets.isEmpty, !isExporting else { return }
         
+        let syncedAssets = assets.map { asset -> PhotoAsset in
+            if liveDevelopAssetID == asset.id, let live = liveDevelopXMP {
+                var a = asset
+                a.xmp = live
+                return a
+            }
+            return asset
+        }
+        
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.prompt = "Export"
-        panel.title = "Export \(assets.count) Photo\(assets.count > 1 ? "s" : "") to JPEG"
+        panel.title = "Export \(syncedAssets.count) Photo\(syncedAssets.count > 1 ? "s" : "") to JPEG"
         
         if let current = currentFolderURL {
             panel.directoryURL = current
         }
         
         if panel.runModal() == .OK, let targetDir = panel.url {
-            startExport(assets: assets, outputDirectory: targetDir)
+            startExport(assets: syncedAssets, outputDirectory: targetDir)
         }
     }
     

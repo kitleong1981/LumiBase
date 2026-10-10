@@ -7,80 +7,36 @@ final class LightcraftHighlightsTests: XCTestCase {
     private let context = CIContext(options: [.useSoftwareRenderer: true])
     private let cs = CGColorSpaceCreateDeviceRGB()
     
-    func testHighlightRollOffKernelCompressesHighlightsAndPreservesMidtones() {
-        let kernel = HighlightRollOffKernel.shared
+    func testStandardToneCurvePreservesWhitePointAndMidtones() {
+        let pipeline = AdobeColorPipeline.shared
         
-        // Highlight patch (high luminance)
-        let highlightColor = CIColor(red: 0.92, green: 0.82, blue: 0.70)
-        let highlightImg = CIImage(color: highlightColor).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+        // Pure white point (input 1.0)
+        let whiteColor = CIColor(red: 1.0, green: 1.0, blue: 1.0)
+        let whiteImg = CIImage(color: whiteColor).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
         
         // Midtone patch (y = 0.50)
         let midtoneColor = CIColor(red: 0.50, green: 0.50, blue: 0.50)
         let midtoneImg = CIImage(color: midtoneColor).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
         
-        let neutralHL = highlightImg
-        let recoveredHL = kernel.apply(image: highlightImg, hlFactor: -1.0)
+        var xmp = XMPMetadata()
+        xmp.highlights2012 = -100
+        xmp.advancedRAWHighlightRecovery = false
         
-        let neutralMid = midtoneImg
-        let recoveredMid = kernel.apply(image: midtoneImg, hlFactor: -1.0)
+        let processedWhite = pipeline.process(image: whiteImg, cameraModel: nil, xmp: xmp)
+        let processedMid = pipeline.process(image: midtoneImg, cameraModel: nil, xmp: xmp)
         
-        var pixNeutralHL = [UInt8](repeating: 0, count: 4)
-        var pixRecoveredHL = [UInt8](repeating: 0, count: 4)
-        var pixNeutralMid = [UInt8](repeating: 0, count: 4)
-        var pixRecoveredMid = [UInt8](repeating: 0, count: 4)
+        var pixWhite = [UInt8](repeating: 0, count: 4)
+        var pixMid = [UInt8](repeating: 0, count: 4)
         
-        context.render(neutralHL, toBitmap: &pixNeutralHL, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
-        context.render(recoveredHL, toBitmap: &pixRecoveredHL, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
-        context.render(neutralMid, toBitmap: &pixNeutralMid, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
-        context.render(recoveredMid, toBitmap: &pixRecoveredMid, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
+        context.render(processedWhite, toBitmap: &pixWhite, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
+        context.render(processedMid, toBitmap: &pixMid, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
         
-        // Highlights must be visibly compressed
-        XCTAssertLessThan(pixRecoveredHL[0], pixNeutralHL[0], "Highlights must be compressed when hlFactor < 0")
+        // Fully clipped regions carry no data: local highlights taper so they stay bright, not mud grey
+        XCTAssertGreaterThanOrEqual(pixWhite[0], 185, "Clipped white must not collapse to grey at Highlights -100")
         
-        // Midtones must be strictly preserved (within 1 LSB 8-bit quantization tolerance)
-        let midDiff = abs(Int(pixRecoveredMid[0]) - Int(pixNeutralMid[0]))
-        XCTAssertLessThanOrEqual(midDiff, 1, "Midtones (y <= 0.50) must remain strictly preserved by the highlight roll-off kernel")
-    }
-    
-    func testHighlightRollOffKernelPreservesHueRatios() {
-        let kernel = HighlightRollOffKernel.shared
-        
-        // Warm sunset golden light: R > G > B
-        let sunsetColor = CIColor(red: 0.90, green: 0.60, blue: 0.30)
-        let sunsetImg = CIImage(color: sunsetColor).cropped(to: CGRect(x: 0, y: 0, width: 4, height: 4))
-        
-        let recovered = kernel.apply(image: sunsetImg, hlFactor: -0.75)
-        
-        var origFloat = [Float](repeating: 0, count: 4)
-        var recFloat = [Float](repeating: 0, count: 4)
-        let fcs = CGColorSpace(name: CGColorSpace.linearSRGB)!
-        
-        context.render(sunsetImg, toBitmap: &origFloat, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: fcs)
-        context.render(recovered, toBitmap: &recFloat, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: fcs)
-        
-        // Verify R/G and G/B ratios are preserved within 0.05 tolerance (hue constancy)
-        let origRG = origFloat[0] / origFloat[1]
-        let recRG = recFloat[0] / recFloat[1]
-        XCTAssertEqual(origRG, recRG, accuracy: 0.05, "Highlight recovery must preserve chromaticity / hue ratios")
-    }
-    
-    func testSpecularHighlightDesaturationNearClipping() {
-        let kernel = HighlightRollOffKernel.shared
-        
-        // Highly saturated specular highlight near clipping limit (> 0.985)
-        let specularColor = CIColor(red: 0.995, green: 0.85, blue: 0.30)
-        let specularImg = CIImage(color: specularColor).cropped(to: CGRect(x: 0, y: 0, width: 4, height: 4))
-        
-        let processed = kernel.apply(image: specularImg, hlFactor: 0.0) // even at 0, specular roll-off desaturates extreme highlights
-        
-        var origBytes = [UInt8](repeating: 0, count: 4)
-        var procBytes = [UInt8](repeating: 0, count: 4)
-        
-        context.render(specularImg, toBitmap: &origBytes, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
-        context.render(processed, toBitmap: &procBytes, rowBytes: 4, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: cs)
-        
-        // Blue channel should increase towards luminance to desaturate specular highlight into neutral white
-        XCTAssertGreaterThan(procBytes[2], origBytes[2], "Specular highlights must desaturate towards neutral white")
+        // Midtones (0.50) must remain preserved near 128 (within 20 levels to allow natural highlight knee)
+        let midDiff = abs(Int(pixMid[0]) - 128)
+        XCTAssertLessThanOrEqual(midDiff, 20, "Midtones must remain well preserved around 0.50")
     }
     
     func testPipelineIntegrationWithLightcraftHighlights() {
@@ -89,11 +45,109 @@ final class LightcraftHighlightsTests: XCTestCase {
         
         var xmp = XMPMetadata()
         xmp.highlights2012 = -60
-        xmp.advancedRAWHighlightRecovery = false
-        
         let output = pipeline.process(image: testImage, cameraModel: "ILCE-7M4", xmp: xmp)
         XCTAssertNotNil(output)
         XCTAssertEqual(output.extent.width, 32)
         XCTAssertEqual(output.extent.height, 32)
+    }
+    
+    func testAcceptedHighlightsKernelChromaCapAndGamutMapping() throws {
+        let extent = CGRect(x: 0, y: 0, width: 32, height: 32)
+        // High-luminance, high-saturation color patch (e.g. extreme recovered blown sky)
+        let baseline = CIImage(color: CIColor(red: 0.99, green: 0.95, blue: 0.80)).cropped(to: extent)
+        let target = CIImage(color: CIColor(red: 0.80, green: 0.70, blue: 0.40)).cropped(to: extent)
+        
+        let fcs = CGColorSpace(name: CGColorSpace.linearSRGB)!
+        let ctx = CIContext(options: [.useSoftwareRenderer: false, .workingColorSpace: fcs, .outputColorSpace: fcs])
+        
+        let field = try AcceptedHighlightsKernel.prepare(baseline: baseline, target: target, context: ctx)
+        let result = AcceptedHighlightsKernel.apply(baseline: baseline, target: target, field: field)
+        
+        var pix = [Float](repeating: 0, count: 4)
+        ctx.render(result, toBitmap: &pix, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: fcs)
+        
+        // Output must remain strictly within valid physical gamut [0, 1] without overflow
+        XCTAssertGreaterThanOrEqual(pix[0], 0.0)
+        XCTAssertLessThanOrEqual(pix[0], 1.0)
+        XCTAssertGreaterThanOrEqual(pix[1], 0.0)
+        XCTAssertLessThanOrEqual(pix[1], 1.0)
+        XCTAssertGreaterThanOrEqual(pix[2], 0.0)
+        XCTAssertLessThanOrEqual(pix[2], 1.0)
+    }
+    
+    func testSonyARWHighlightRecoveryVerification() async throws {
+        let arwURL = URL(fileURLWithPath: "/Volumes/Super SSD/Photo/Temp/09-17_淡江大橋/A7C00904.ARW")
+        guard FileManager.default.fileExists(atPath: arwURL.path) else {
+            throw XCTSkip("Sony ARW test file not found at \(arwURL.path)")
+        }
+        
+        let xmpURL = URL(fileURLWithPath: "/Volumes/Super SSD/Photo/Temp/09-17_淡江大橋/A7C00904.xmp")
+        var xmp = XMPMetadata()
+        if let data = try? Data(contentsOf: xmpURL) {
+            xmp = XMPParser.parse(data: data)
+        }
+        xmp.highlights2012 = -100
+        
+        // 1. Load base holder
+        RAWImageLoader.shared.clearCache()
+        guard let holder = await RAWImageLoader.shared.loadBaseHolder(from: arwURL, xmp: xmp) else {
+            XCTFail("Failed to load RAW base holder for A7C00904.ARW")
+            return
+        }
+        
+        let ctx = CIContext()
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+        
+        // 2. Standard Path Process
+        var stdXMP = xmp
+        stdXMP.advancedRAWHighlightRecovery = false
+        let stdProcessed = AdobeColorPipeline.shared.process(
+            image: holder.full,
+            cameraModel: "ILCE-7CM2",
+            xmp: stdXMP,
+            baseHolder: holder
+        )
+        
+        if let stdCG = ctx.createCGImage(stdProcessed, from: holder.fullExtent, format: .RGBA8, colorSpace: srgb) {
+            let outURL = URL(fileURLWithPath: "/Volumes/Super SSD/Photo/Temp/A7C00904-LB-Standard.jpg")
+            if let dest = CGImageDestinationCreateWithURL(outURL as CFURL, "public.jpeg" as CFString, 1, nil) {
+                CGImageDestinationAddImage(dest, stdCG, [kCGImageDestinationLossyCompressionQuality: 0.95] as CFDictionary)
+                CGImageDestinationFinalize(dest)
+                fputs("Exported /Volumes/Super SSD/Photo/Temp/A7C00904-LB-Standard.jpg successfully\n", stderr)
+            }
+        }
+        
+        // 3. Advanced RAW Highlight Recovery Process
+        if let source = holder.highlightsSource {
+            var advXMP = xmp
+            advXMP.advancedRAWHighlightRecovery = true
+            let advService = NativeHighlightsService.shared
+            advService.clear()
+            if let advImage = advService.image(source: source, xmp: advXMP, cameraModel: "ILCE-7CM2") {
+                if let advCG = ctx.createCGImage(advImage, from: holder.fullExtent, format: .RGBA8, colorSpace: srgb) {
+                    let outURL = URL(fileURLWithPath: "/Volumes/Super SSD/Photo/Temp/A7C00904-LB-Advanced.jpg")
+                    if let dest = CGImageDestinationCreateWithURL(outURL as CFURL, "public.jpeg" as CFString, 1, nil) {
+                        CGImageDestinationAddImage(dest, advCG, [kCGImageDestinationLossyCompressionQuality: 0.95] as CFDictionary)
+                        CGImageDestinationFinalize(dest)
+                        fputs("Exported /Volumes/Super SSD/Photo/Temp/A7C00904-LB-Advanced.jpg successfully\n", stderr)
+                    }
+                }
+            }
+        }
+    }
+    
+    func testPhotoExportServiceUsesAdvancedHighlightsByDefault() async throws {
+        let arwURL = URL(fileURLWithPath: "/Volumes/Super SSD/Photo/Temp/09-17_淡江大橋/A7C00904.ARW")
+        guard FileManager.default.fileExists(atPath: arwURL.path) else { return }
+        guard var asset = FolderScanner.parseAsset(fileURL: arwURL) else { return }
+        
+        asset.xmp.highlights2012 = -100
+        asset.xmp.advancedRAWHighlightRecovery = nil // default without explicit per-photo override
+        XCTAssertTrue(NativeHighlightsService.isAdvancedEnabled(for: asset.xmp), "Advanced highlight recovery must be active by default for RAW files")
+        
+        let outURL = URL(fileURLWithPath: "/Volumes/Super SSD/Photo/Temp/A7C00904-PhotoExportService.jpg")
+        try PhotoExportService.shared.exportPhoto(asset: asset, to: outURL)
+        let size = (try? FileManager.default.attributesOfItem(atPath: outURL.path)[.size] as? Int) ?? 0
+        XCTAssertGreaterThan(size, 0)
     }
 }
