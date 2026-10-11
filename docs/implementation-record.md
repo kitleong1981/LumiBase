@@ -564,4 +564,49 @@ LumiBase/
    - **亮度保護遮罩 (`CIBlendWithMask`)**：建立漸變遮罩（0.15 以下遮蔽，0.55 以上完全啟用），使對比補償僅作用於雲層與天空，暗部橋墩剪影與深水面 100% 免疫，防止雜訊與邊界光暈。
    - **雲底陰影下潛**：透過微幅深沉的 `hlP1`，使雲朵背光陰影自然沉至 45~64 階，實測雲層動態範圍達 119 階（LR 為 122 階，僅差 3 階），中央頂部雲層對比度恢復至 LR 的 **95.4%**。
 
+---
+
+## 13. 2026-10-11 實作紀錄 (v1.14.15)
+
+### 13.1 Lightcraft 光學曝光架構研究與根因診斷
+1. **問題現象**：
+   - 使用者反映在 LumiBase 調高曝光時，畫面高光部分被調亮過多而呈現死白，而未能像現代顯影引擎 Lightcraft 般對整體照片進行均勻自然的光學提亮。
+2. **根因對比分析**：
+   - **Lightcraft 機制**：在場景線性空間（Scene-Linear Space）套用 $2^{ev}$ 增益，接著經過擴展型色調映射（Extended Tonemapping with Filmic Reinhard Curve）與高光肩部壓縮（Highlight Shoulder Rolloff），極高光伴隨鏡面反射去飽和（Specular Desaturation）。因此拉高曝光時，高光自然柔和收斂，不會硬衝上限。
+   - **LumiBase 過去機制**：使用 Apple Core Image 預設的 `CIExposureAdjust`（$C \times 2^{ev}$）作用於已套用曲線的顯示參照空間，且缺乏高光肩部滾降保護。導致 $ev > 0$ 時高光像素過快飽和並硬截斷（Clip）至 1.0，造成高光區域暴衝死白、暗部與中間調卻相對提亮不足。
+
+### 13.2 OpticalExposureKernel 核心設計與數學校準
+1. **光學光子轉移函數架構**：
+   $$y_{\text{target}} = \min\left( \frac{y}{2^{-ev} + \alpha \cdot y}, \; 1.0 \right)$$
+   $$\alpha = \max(0, \; 1 - 2^{-ev}) \cdot \left(1.0 - 0.25 \cdot \frac{\text{whites}}{100}\right)$$
+   - **暗部純光子倍增**：$\lim_{y \to 0} \frac{d(y_{\text{target}})}{dy} = 2^{ev}$，保證暗部與中間調具備真實相機曝光增益的物理線性響應。
+   - **白點永久鎖定**：$y_{\text{target}}(1.0) \equiv 1.0$，徹底杜絕高光溢位與色階破裂。
+   - **全區間嚴格單調遞增**：導函數恆大於 0，無任何階調反轉或黑斑假影。
+2. **鏡面高光泛白去飽和（Specular Bleaching）**：
+   - 導入 $w_{\text{spec}} = \text{smoothstep}(0.85, 1.0, y_{\text{target}})$，極亮處自然去飽和，模擬真實底片感光乳劑與視覺感知，消除高光色邊。
+3. **管線整合**：
+   - 在 `AdobeColorPipeline.swift` 中以 `OpticalExposureKernel.apply(image:exposure:whites:)` 取代傳統的 `CIExposureAdjust`。
+
+### 13.3 Swift 6 併發警告修復與 Xcode 專案整合 (0 Errors, 0 Warnings)
+1. **`OpticalExposureKernel.swift` 專案檔註冊**：
+   - 於 `LumiBase.xcodeproj/project.pbxproj` 正式註冊檔案參照與編譯階段，修復 `Cannot find 'OpticalExposureKernel' in scope` 編譯錯誤。
+2. **型別安全與並行警告清理**：
+   - 修復 `AdobeColorPipeline.swift` 中 3 處 `Float? to Any` 隱式轉換警告。
+   - 修復 `AppState.swift` 中 `FileManager` non-Sendable 警告（`nonisolated(unsafe) let fm = fileManager`）。
+   - 將 `ThumbnailLoader.swift` 中的 `CameraReadyMemory` 快取字典與 `cameraReadyKey` 自 `NSString` 遷移至 Swift 原生 `String`，消除非安全並行警告。
+3. **驗證結果**：
+   - `xcodebuild -scheme LumiBase clean build` 達到 **0 Errors, 0 Warnings**。
+
+### 13.4 單元測試驗證 (OpticalExposureKernelTests)
+- 新增 `Tests/LumiBaseTests/OpticalExposureKernelTests.swift`，包含 8 項全面單元測試：
+  - `testIdentityAtZeroEV`
+  - `testPhotonScalingInShadows`
+  - `testHighlightShoulderCompression`
+  - `testStrictMonotonicity`
+  - `testNegativeEVBehavior`
+  - `testWhitesModulation`
+  - `testExtremeBoundsSafety`
+  - `testSpecularBleachingPreservesAchromaticWhite`
+  全數通過驗證。
+
 

@@ -14,7 +14,7 @@ LumiBase 是一套專為 macOS (特別是 Apple Silicon M 系列晶片) 打造�
 - 🎛️ **1:1 媲美 Lightroom Classic 的 Develop Basic 修圖模組**：
   - **白平衡 (WB)**：2000K ~ 50000K 色溫、-150 ~ +150 色調、完整色溫預設檔（As Shot、Auto、Daylight、Cloudy、Shade、Tungsten、Fluorescent、Flash、Custom）。
   - **處理模式 (Treatment)**：一鍵 Color / Black & White 切換，黑白模式下自動聯動 `crs:ConvertToGrayscale="True"` 並隱藏彩度滑桿。
-  - **色調控制 (Tone)**：線性光子曝光（-5.00 ~ +5.00 EV）、對比、雙階段高光還原（Apple 雙邊濾波挽救死白雲層）、全域陰影提升/加深、極致白色端點與黑色沉澱。
+  - **色調控制 (Tone)**：Lightcraft 級全畫面光學曝光（Optical Exposure Pipeline，-5.00 ~ +5.00 EV，擴展型 Reinhard 高光肩部滾降保護白點 1.0、鏡面高光泛白防色偏）、對比、雙階段高光還原（Apple 雙邊濾波挽救死白雲層）、全域陰影提升/加深、極致白色端點與黑色沉澱。
   - **外觀控制 (Presence)**：紋理（正向微距毛髮銳利、負向人像皮膚自然磨皮）、清晰度（正向中頻對比、負向浪漫夢幻柔焦）、去朦朧（大氣去霧/加霧）、自然飽和度（膚色保護）與標準線性飽和度。
   - **精緻滑桿組件 (`LightroomSlider`)**：0ms 本機跟手手感、雙擊標題/軌道復位、**點擊/雙擊數值標籤直接進入打字輸入，支援 `Tab` / `Shift+Tab` 在各修圖選項間連續跳轉切換，按 Enter 即刻套用**。
 - 🔄 **Lightroom 等級 Develop Sync 批次同步與修圖管理**：
@@ -154,6 +154,8 @@ xcodebuild -scheme LumiBase -destination 'platform=macOS' build
 - 📖 **使用者操作手冊與快捷鍵教學 (Usage Guide)**：[`docs/USAGE_GUIDE.md`](docs/USAGE_GUIDE.md)
 - 📝 **版本更新日誌 (Changelog)**：[`CHANGELOG.md`](CHANGELOG.md)
 - 📐 **架構演進與實作紀錄**：[`docs/implementation-record.md`](docs/implementation-record.md)
+- 💡 **Lightcraft 光學曝光架構設計書 (v1.14.15)**：[`docs/optical-exposure-pipeline-plan.md`](docs/optical-exposure-pipeline-plan.md)
+- 🚀 **Fast Library 1.14.15 發行說明**：[`docs/1.14.15-fast-library-zhTW.md`](docs/1.14.15-fast-library-zhTW.md)
 - ✂️ **裁切與旋轉校正規格書**：[`docs/crop-and-rotate-plan.md`](docs/crop-and-rotate-plan.md)
 - 🔄 **批次修圖同步規劃書**：[`docs/develop-sync-plan.md`](docs/develop-sync-plan.md)
 

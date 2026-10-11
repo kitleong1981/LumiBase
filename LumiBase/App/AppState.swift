@@ -1538,23 +1538,24 @@ public final class AppState: ObservableObject {
         let scopes = Set(scopeCandidates).filter { $0.startAccessingSecurityScopedResource() }
         let queue = xmpWriteQueue
         let transactionID = UUID()
+        nonisolated(unsafe) let fm = fileManager
         trashTasks[transactionID] = Task { @MainActor in
             let result: (Set<String>, [String]) = await withCheckedContinuation { continuation in
                 queue.async {
                     defer { for url in scopes { url.stopAccessingSecurityScopedResource() } }
                     var succeeded = Set<String>(), errors: [String] = []
                     for asset in assets {
-                        guard fileManager.fileExists(atPath: asset.fileURL.path) else {
+                        guard fm.fileExists(atPath: asset.fileURL.path) else {
                             errors.append("\(asset.filename): primary file unavailable or missing; group retained. No companions moved. Restore the primary or reconnect the volume before retrying.")
                             continue
                         }
                         var moved: [String] = [], failed = false
                         // Evaluate sidecars here, after any already-running XMP write.
                         for url in asset.allAssociatedURLs {
-                            guard fileManager.fileExists(atPath: url.path) else { continue }
+                            guard fm.fileExists(atPath: url.path) else { continue }
                             do {
-                                try fileManager.trashItem(at: url, resultingItemURL: nil)
-                                guard !fileManager.fileExists(atPath: url.path) else {
+                                try fm.trashItem(at: url, resultingItemURL: nil)
+                                guard !fm.fileExists(atPath: url.path) else {
                                     throw NSError(domain: "LumiBase.Trash", code: 1,
                                         userInfo: [NSLocalizedDescriptionKey: "Trash returned but source still exists"])
                                 }

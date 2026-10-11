@@ -44,16 +44,34 @@ xcodebuild \
   -derivedDataPath "$DERIVED_DATA_DIR" \
   build -quiet
 
+# Locate built application bundle (support both LumiBase.app and LumiBase Fast Library.app)
 if [ ! -d "$APP_BUNDLE_PATH" ]; then
+    if [ -d "${DERIVED_DATA_DIR}/Build/Products/${CONFIGURATION}/LumiBase Fast Library.app" ]; then
+        APP_BUNDLE_PATH="${DERIVED_DATA_DIR}/Build/Products/${CONFIGURATION}/LumiBase Fast Library.app"
+    else
+        APP_BUNDLE_PATH=$(find "${DERIVED_DATA_DIR}/Build/Products/${CONFIGURATION}" -maxdepth 1 -name "*.app" 2>/dev/null | head -n 1)
+    fi
+fi
+
+if [ -z "$APP_BUNDLE_PATH" ] || [ ! -d "$APP_BUNDLE_PATH" ]; then
     echo "❌ Error: Application bundle not found at ${APP_BUNDLE_PATH}"
     exit 1
+fi
+
+# Compile and embed JPEG ROI Helper if needed
+if [ -f "${SCRIPT_DIR}/Tools/LibraryJPEGROIHelper/main.swift" ]; then
+    echo "🔧 Embedding LumiBaseJPEGROIHelper into ${APP_BUNDLE_PATH}..."
+    mkdir -p "${APP_BUNDLE_PATH}/Contents/Helpers"
+    xcrun swiftc -O -target arm64-apple-macos14.0 "${SCRIPT_DIR}/Tools/LibraryJPEGROIHelper/main.swift" -o "${APP_BUNDLE_PATH}/Contents/Helpers/LumiBaseJPEGROIHelper"
+    /usr/bin/codesign --force --sign - --timestamp=none "${APP_BUNDLE_PATH}/Contents/Helpers/LumiBaseJPEGROIHelper"
+    /usr/bin/codesign --force --sign - --timestamp=none --entitlements "${SCRIPT_DIR}/LumiBase/Resources/LumiBase.entitlements" "${APP_BUNDLE_PATH}"
 fi
 
 # Extract Version from Info.plist
 APP_VERSION=$(plutil -extract CFBundleShortVersionString raw -o - "${APP_BUNDLE_PATH}/Contents/Info.plist" 2>/dev/null || echo "1.0.0")
 OUTPUT_DMG="${SCRIPT_DIR}/${APP_NAME}-${APP_VERSION}-Installer.dmg"
 
-echo "✅ Successfully built ${APP_NAME}.app (v${APP_VERSION})"
+echo "✅ Successfully built $(basename "$APP_BUNDLE_PATH") (v${APP_VERSION})"
 
 # 3. Setup DMG Staging Directory
 echo "📂 Preparing DMG staging directory..."

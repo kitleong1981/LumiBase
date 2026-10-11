@@ -31,15 +31,14 @@ public final class AdobeColorPipeline: Sendable {
         
         var current = image
         
-        // 1. Exposure Compensation (EV Delta)
+        // 1. Optical Exposure Compensation (Lightcraft-grade Optical Exposure & Reinhard Shoulder)
         // If RAW demosaicing already applied native EV, only apply the live delta
         let targetEV = xmp.exposure2012 ?? 0.0
         let baseEV = Double(baseHolder?.baseExposure ?? 0.0)
         let deltaEV = targetEV - baseEV
-        if abs(deltaEV) > 0.01 {
-            current = current.applyingFilter("CIExposureAdjust", parameters: [
-                kCIInputEVKey: deltaEV
-            ])
+        if abs(deltaEV) > 0.005 {
+            let whites = Double(xmp.whites2012 ?? 0)
+            current = OpticalExposureKernel.apply(image: current, ev: Float(deltaEV), whites: Float(whites))
         }
         
         // 2. White Balance / Kelvin Temperature & Tint Delta
@@ -341,7 +340,9 @@ public enum BaselineToneKernel {
     """)
     static func apply(_ image: CIImage) -> CIImage {
         guard let kernel, !image.extent.isInfinite else { return image }
-        let lift = Float(tune("LB_BA_LIFT", 3.0)), chroma = Float(tune("LB_BA_CHROMA", 0.8)), bright = Float(tune("LB_BA_BRIGHT", 0.88))
+        let lift = Float(tune("LB_BA_LIFT", 3.0)) ?? 3.0
+        let chroma = Float(tune("LB_BA_CHROMA", 0.8)) ?? 0.8
+        let bright = Float(tune("LB_BA_BRIGHT", 0.88)) ?? 0.88
         return kernel.apply(extent: image.extent, arguments: [image, lift, chroma, bright]) ?? image
     }
 }
