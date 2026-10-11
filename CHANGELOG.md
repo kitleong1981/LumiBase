@@ -5,6 +5,12 @@ All notable changes to **LumiBase** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Experimental baseline tone correction for RAW (`BaselineToneKernel`, `AdobeColorPipeline`)**: lifts dark/mid-tone L* by ~3 and scales chroma (x0.80 dark/mid, x0.88 bright) to move all-zero renders closer to Lightroom exports. Mean Lab dE76 vs 10 LR exports 6.48 -> 5.83 (9 of 10 improve; 1330 regresses). Default on; disable with `defaults write com.lumibase.LumiBase.FastLibrary baselineToneCorrection -bool false`. See `docs/baseline-tone-correction-zhTW.md` for method and limits.
+- Opt-in `HighlightsDiagTests` and `scripts/lr_compare.py` for measuring renders against Lightroom exports.
+
 ## [1.14.14 Fast Library] - 2026-10-10
 
 ### Added
