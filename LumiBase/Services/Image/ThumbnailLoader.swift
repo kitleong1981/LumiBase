@@ -45,21 +45,21 @@ private final class CameraReadyCache: @unchecked Sendable {
 /// deterministic even when the separate large native cache triggers memory pressure.
 private final class CameraReadyMemory: @unchecked Sendable {
     private let lock = NSLock()
-    private var entries: [NSString: (frame: CameraReadyFrame, cost: Int)] = [:]
-    private var order: [NSString] = []
+    private var entries: [String: (frame: CameraReadyFrame, cost: Int)] = [:]
+    private var order: [String] = []
     private var bytes = 0
-    func object(forKey key: NSString) -> CameraReadyFrame? {
+    func object(forKey key: String) -> CameraReadyFrame? {
         lock.lock(); defer { lock.unlock() }
         guard let entry = entries[key] else { return nil }
         order.removeAll { $0 == key }; order.append(key)
         return entry.frame
     }
-    func removeObject(forKey key: NSString) {
+    func removeObject(forKey key: String) {
         lock.lock(); defer { lock.unlock() }
         if let entry = entries.removeValue(forKey: key) { bytes -= entry.cost }
         order.removeAll { $0 == key }
     }
-    func setObject(_ frame: CameraReadyFrame, forKey key: NSString, cost: Int) {
+    func setObject(_ frame: CameraReadyFrame, forKey key: String, cost: Int) {
         lock.lock(); defer { lock.unlock() }
         if let old = entries.removeValue(forKey: key) { bytes -= old.cost }
         order.removeAll { $0 == key }
@@ -140,8 +140,8 @@ public actor ThumbnailLoader {
     }
     
     private nonisolated static let cameraReady = CameraReadyCache()
-    private nonisolated static func cameraReadyKey(_ asset: PhotoAsset, maxPixelSize: Int) -> NSString {
-        "\(asset.id)|\(asset.dateModified.timeIntervalSinceReferenceDate)|\(asset.fileSize)|\(asset.companionURLs.map(\.path).joined(separator: "|"))|\(maxPixelSize)" as NSString
+    private nonisolated static func cameraReadyKey(_ asset: PhotoAsset, maxPixelSize: Int) -> String {
+        "\(asset.id)|\(asset.dateModified.timeIntervalSinceReferenceDate)|\(asset.fileSize)|\(asset.companionURLs.map(\.path).joined(separator: "|"))|\(maxPixelSize)"
     }
     /// Body-safe: no stat, disk read, actor hop, RAW or native decode.
     public nonisolated static func readyCameraPreview(for asset: PhotoAsset, maxPixelSize: Int = 1600) -> NSImage? {

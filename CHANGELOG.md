@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Experimental baseline tone correction for RAW (`BaselineToneKernel`, `AdobeColorPipeline`)**: lifts dark/mid-tone L* by ~3 and scales chroma (x0.80 dark/mid, x0.88 bright) to move all-zero renders closer to Lightroom exports. Mean Lab dE76 vs 10 LR exports 6.48 -> 5.83 (9 of 10 improve; 1330 regresses). Default on; disable with `defaults write com.lumibase.LumiBase.FastLibrary baselineToneCorrection -bool false`. See `docs/baseline-tone-correction-zhTW.md` for method and limits.
 - Opt-in `HighlightsDiagTests` and `scripts/lr_compare.py` for measuring renders against Lightroom exports.
 
+## [1.14.15 Fast Library] - 2026-10-11
+
+### Added
+- **Lightcraft-Inspired Optical Exposure Pipeline & Extended Reinhard Shoulder Rolloff (`OpticalExposureKernel`, `AdobeColorPipeline`)**:
+  - Replaced standard linear multiplier `CIExposureAdjust` ($C \cdot 2^{ev}$) with an optical photon-domain transfer function with extended Reinhard highlight shoulder compression:
+    $$y_{\text{target}} = \min\left(\frac{y}{2^{-ev} + \alpha \cdot y}, 1.0\right), \quad \alpha = \max(0, 1 - 2^{-ev}) \cdot (1 - 0.25 \cdot \text{whites}/100)$$
+  - **Full-Frame Optical Brightening**: Guarantees true optical photon doubling ($2^{ev}$ gain) across deep shadows and midtones, preventing highlight blowout while naturally brightening the entire frame evenly like Lightcraft.
+  - **White Point Anchoring (1.0)**: Fixed highlight blowouts by strictly pinning pure white $(1.0, 1.0)$ rather than pushing highlight pixels into hard clipping.
+  - **Specular Highlight Bleaching & Desaturation**: Naturally bleaches extreme specular highlights towards white as luminance approaches $1.0$, preventing artificial saturated color fringes in blown areas.
+  - **Whites Slider Integration**: Modulates shoulder roll-off softness with the Whites slider without breaking curve monotonicity or white point safety.
+  - **Unit Test Suite (`OpticalExposureKernelTests`)**: Added 8 comprehensive test cases covering identity mapping, photon scaling in shadows, highlight shoulder compression, strict monotonicity, negative EV behavior, Whites slider modulation, numerical bounds safety, and specular highlight bleaching.
+
+### Fixed
+- **Xcode Build System & Swift Concurrency Warnings**:
+  - Registered `OpticalExposureKernel.swift` in `LumiBase.xcodeproj` (`PBXBuildFile`, `PBXFileReference`, `PBXGroup`, `PBXSourcesBuildPhase`), resolving `Cannot find 'OpticalExposureKernel' in scope` compile error.
+  - Resolved implicit `Float? to Any` coercion warnings in `AdobeColorPipeline.swift` with explicit fallback values.
+  - Resolved non-Sendable `FileManager` warning in `AppState.swift` (`nonisolated(unsafe) let fm = fileManager`).
+  - Migrated `CameraReadyMemory` and `cameraReadyKey` from `NSString` to Swift `String` in `ThumbnailLoader.swift`, eliminating non-Sendable `NSString` warnings under Swift 6 strict concurrency checks.
+  - Verified 0 errors and 0 warnings on full clean release and debug builds.
+
 ## [1.14.14 Fast Library] - 2026-10-10
 
 ### Added

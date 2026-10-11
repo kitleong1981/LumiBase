@@ -177,7 +177,7 @@ struct PerformanceSettingsView: View {
             }
             
             Section("About LumiBase") {
-                let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.14.14"
+                let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.14.15"
                 LabeledContent("Version", value: "v\(appVersion)")
                 LabeledContent("Engine", value: "Apple Silicon Metal & Accelerate")
                 LabeledContent("Settings Shortcut", value: "⌘, (Command + Comma)")
